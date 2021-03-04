@@ -44,7 +44,8 @@ from tqdm import tqdm
 import utils
 
 BASELINE = True
-MODEL = "keypointrcnn_resnet50_fpn_finetune_step1"
+MODEL = "keypointrcnn_resnet50_fpn_finetune"
+FINETUNE_EPOCH = 30
 DATA_DIR = Path("data/ori")
 FOLD = 1
 START_EPOCH = 1
@@ -114,6 +115,10 @@ class Trainer:
                 print("[Early Stop]", self.exname)
                 break
 
+            if self.epoch == FINETUNE_EPOCH:
+                for p in self.model.parameters():
+                    p.requires_grad = True
+
     def train_loop(self):
         self.model.train()
 
@@ -142,7 +147,7 @@ class Trainer:
 
     @torch.no_grad()
     def valid_loop(self):
-        self.model.eval()
+        self.model.train()  # loss 구하기 위함...
 
         self.vloss = utils.AverageMeter()
         with tqdm(total=len(self.dl_valid.dataset), ncols=100, leave=False, desc=f"{self.sepoch} valid") as t:
@@ -190,15 +195,6 @@ class Trainer:
                 "SAM": SAM,
             }
             torch.save(state_dict, self.expath / f"best-ckpt-{self.fold}.pth")
-
-            # Save probabilities
-            np.savez_compressed(
-                EXPATH / f"prob-{self.fold}.npz",
-                tps=self.tps,
-                tys=self.tys,
-                vps=self.vps_ori,
-                vys=self.vys,
-            )
         else:
             self.earlystop_cnt += 1
 
@@ -208,6 +204,7 @@ class Trainer:
         ckpt_path = EXPATH / f"best-ckpt-{self.fold}.pth"
         print("Load best checkpoint", ckpt_path)
         self.model.load_state_dict(torch.load(ckpt_path)["model"])
+        self.model.eval()
 
         # TODO
 
@@ -284,6 +281,10 @@ def load_dataset(fold):
     kf = KFold(n_splits=5, shuffle=True, random_state=1351235)
     for i, (tidx, vidx) in enumerate(kf.split(ds), 1):
         if i == fold:
+            if BASELINE:
+                tidx = tidx[: len(tidx) // 10]
+                vidx = vidx[: len(vidx) // 10]
+
             tds, vds = Subset(ds, tidx), Subset(ds, vidx)
             tdl = DataLoader(tds, batch_size=24, shuffle=True, num_workers=8, pin_memory=True, collate_fn=collate_fn)
             vdl = DataLoader(vds, batch_size=24, shuffle=False, num_workers=8, pin_memory=True, collate_fn=collate_fn)
