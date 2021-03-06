@@ -25,7 +25,7 @@ def seed_everything(seed, deterministic=False):
 
 
 def generate_experiment_directory(base_dir, comments=None):
-    comments = list(filter(None, comments))
+    comments = list(map(lambda x: x.replace(" ", "_"), filter(None, comments)))
 
     base_dir = Path(base_dir)
     n = datetime.now()

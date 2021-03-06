@@ -1,19 +1,111 @@
 """
+# 이미 한 것
+
+- 일단 돌려서 submission 만들어보기
+- 이미지 resize한게 더 좋음
+- Crop을 안함
+- finetune 말고 처음부터
+
+====================================================================
+# 나중에 할 것
+
+
+====================================================================
 # 할 것
-
-* 일단 돌려서 submission 만들어보기
-
-* 데이터 augmentation 어떻게 하는지? flip 정도 가능할듯?
-https://blog.paperspace.com/data-augmentation-for-bounding-boxes/
-shift + rotation + scale 모두 어느정도 도움이 될 수 있겠다.
-근데 scale은 이미지 사이즈를 안 바꾸는 방법으로 했으면 좋겠는데;;
-
-* 이미지를 필요 영역만 잘라서 넣어줬을 때 어떻게 되는지?*
 
 * RMSE metric 추가
 * validation의 0번째 아이템으로 예제 이미지 추가
 * 마지막 convtranspose weight를 처음에 설정하는게 좋은지 아닌지
 * keypoint loss만으로 학습했을 때?
+
+* GeneralRCNN? 에서 loss 구하는 코드 구해서 따로 로스 구하는 식 만들어주기
+값이랑 loss를 둘 다 구할 수 있으면 좋겠다.
+
+* augmentation들
+    * shift
+    * scale
+    * blur
+    * gamma
+    * contrast
+    
+    * Rotation. limit=30
+        rotation 30부터는 keypoint가 밖으로 나가버리는건지 안된다...
+
+* efficientdet
+
+* scaled-yolo v4
+
+====================================================================
+# 결과
+
+* 이미지 resize한게 더 좋음
+    - non baseline: 1.807918:2.240550 --> 1.552490:2.205956 (41.7725228481)
+    - _on bsaeline: 2.844641:3.861035 --> 2.894984:3.741140
+
+* Crop을 안함
+    - 2.894984:3.741140 --> 2.625810:4.103032
+
+* finetune 말고 처음부터
+    2.894984:3.741140 --> 2.924908:3.780813
+    금방 학습이 되기는 하나, 쉽게 과적합하는듯?
+    최종: 1.877865:5.026970
+
+* Rotation. limit=10
+    처음에는 학습이 조금 느려지는거 같기도?
+    2.894984:3.741140 --> 2.856512:3.611753
+    0.13만큼 좋아짐
+
+* Rotation. limit=20
+    2.894984:3.741140 --> 2.966834:3.590582
+    0.15만큼 좋아짐
+
+* 1300x1030
+    padding이 작아서 rotation할 때 keypoint가 삭제되는 문제 때문에 crop 영역을 좀 더 넓게 잡아줌
+    2.894984:3.741140 --> 3.166891:3.731480
+    
+* Rotation. limit=10
+    3.166891:3.731480 --> 2.662445:3.811243
+    
+* Rotation. limit=20
+    3.166891:3.731480 --> 3.185518:3.806415
+    
+* Rotation. limit=30
+    3.166891:3.731480 --> 2.933816:3.737933
+
+* Crop 1100x1030
+    3.166891:3.731480 --> 3.058709:3.648326
+    crop 중에선 가장 좋았음
+
+* Crop 1100x1030 + rotate10
+    3.058709:3.648326 --> 3.233407:3.688290
+    약간 나빠지네?
+
+* Crop 1100x1030 + rotate20
+    3.058709:3.648326 --> 2.808439:3.732426
+
+* Crop 1100x1030 + rotate30 (오류)
+* Crop 1100x1030 + rotate25 (s5)
+    3.058709:3.648326 --> 3.172204:3.614873
+* Crop 1100x1030 + rotate25 (s3)
+    3.058709:3.648326 --> 3.170852:3.649939
+
+* Crop 1100x1030 + rotate25 + shift0.01 (s3)
+    3.170852:3.649939 --> 2.988702:3.645297
+* Crop 1100x1030 + rotate25 + shift0.02
+    3.170852:3.649939 --> 2.902854:3.772051
+    shift는 오히려 나빠지기만 하는듯? rotate도 그닥 큰 효과는 없는거같고
+
+* Crop 1100x900 + rotate5 + shift0.02 (s5)
+    2.902854:3.772051 --> 3.405847:3.727300 
+* Crop 1100x900 + rotate5 + shift0.03 (s3)
+    2.902854:3.772051 --> 3.038964:3.756478 
+
+* Crop 1100x900 + rotate15 + shift0.02 (s5)
+    2.902854:3.772051 --> 3.070648:3.690815 (*)
+* Crop 1100x900 + rotate25 + shift0.02 (s3)
+    (오류)
+
+
 """
 
 import math
@@ -61,8 +153,8 @@ START_EPOCH = 1
 FINETUNE_EPOCH = 30
 NUM_EPOCHS = 200
 if BASELINE:
-    NUM_EPOCHS = 10
-    FINETUNE_EPOCH = 5
+    NUM_EPOCHS = 20
+    FINETUNE_EPOCH = 10
 
 CKPT = None
 LOG_DIR = Path("log" + ("/baseline" if BASELINE else ""))
@@ -73,9 +165,11 @@ COMMENTS = [
     f"LR{LR}",
     f"fold{FOLD}",
     "baseline" if BASELINE else None,
+    "1100x900+rotate15+shift0.02",
 ]
 EXPATH, EXNAME = utils.generate_experiment_directory(RESULT_DIR, COMMENTS)
 shutil.copy("main-baseline.py", EXPATH / "main-baseline.py")
+shutil.copy("utils.py", EXPATH / "utils.py")
 print(EXNAME)
 utils.seed_everything(SEED)
 
@@ -101,6 +195,7 @@ class Trainer:
 
     def fit(self, dl_train, dl_valid, num_epochs, start_epoch=1):
         torch.cuda.empty_cache()
+        self.finetune_step = 1
 
         self.earlystop_cnt = 0
         self.best_loss = math.inf
@@ -118,7 +213,7 @@ class Trainer:
         )
 
         for self.epoch in range(start_epoch, num_epochs + 1):
-            self.sepoch = f"[{self.epoch:03d}/{num_epochs}]"
+            self.sepoch = f"[{self.epoch:03d}/{num_epochs:03d}]"
             self.train_loop()
             self.valid_loop()
             self.callback()
@@ -127,7 +222,10 @@ class Trainer:
                 print("[Early Stop]", self.exname)
                 break
 
-            if self.epoch == FINETUNE_EPOCH:
+            if self.finetune_step == 1 and self.epoch >= FINETUNE_EPOCH:
+                self.finetune_step = 2
+                self.earlystop_cnt = 0
+                torch.cuda.empty_cache()
                 for p in self.model.parameters():
                     p.requires_grad = True
 
@@ -186,6 +284,7 @@ class Trainer:
             "loss_objectness": utils.AverageMeter(),
             "loss_rpn_box_reg": utils.AverageMeter(),
         }
+        # TODO loss가 아니라 RMSE를 구하도록 하는건?
         with tqdm(total=len(self.dl_valid.dataset), ncols=100, leave=False, desc=f"{self.sepoch} valid") as t:
             for files, xs, ys in self.dl_valid:
                 xs_ = [x.cuda() for x in xs]
@@ -269,8 +368,6 @@ class Trainer:
         self.model.load_state_dict(torch.load(ckpt_path)["model"])
         self.model.eval()
 
-        # reverse_transform = A.Compose([]) # TODO resize가 있으면 쓰는 것도 좋을듯
-
         output_files = []
         output_keypoints = []
         with tqdm(total=len(dl.dataset), ncols=100, leave=False, desc=f"Submission:{self.fold}") as t:
@@ -278,18 +375,23 @@ class Trainer:
                 xs_ = [x.cuda() for x in xs]
                 results_ = self.model(xs_)
                 for file, result_ in zip(files, results_):
-                    keypoints_ = result_["keypoints"][0, :, :2]
+                    keypoints = result_["keypoints"][0, :, :2].cpu().numpy()
                     # 이미지를 왼쪽 400, 위쪽 100만큼 잘라냈으므로 보상해줌
-                    keypoints_[:, 0] += 400
-                    keypoints_[:, 1] += 100
+                    keypoints[:, 0] = keypoints[:, 0] * (1100 / xs[0].size(2)) + 400
+                    keypoints[:, 1] = keypoints[:, 1] * (900 / xs[0].size(1)) + 100
+                    # keypoints[:, 0] = keypoints[:, 0] * (1300 / xs[0].size(2)) + 300
+                    # keypoints[:, 1] = keypoints[:, 1] * (1080 / xs[0].size(1)) + 50
 
                     output_files.append(file.name)
-                    output_keypoints.append(keypoints_.cpu().flatten().numpy())
-        output_files = np.array(output_files)
+                    output_keypoints.append(keypoints.reshape(-1))
+
+                    t.set_postfix_str(file.name, refresh=False)
+                    t.update()
+        output_files = np.array(output_files).reshape(-1, 1)
         output_keypoints = np.stack(output_keypoints)
         output = np.concatenate([output_files, output_keypoints], axis=1)
         output = pd.DataFrame(output, columns=submission_df.columns)
-        output.to_csv(self.expath / f"submission-{self.fold}.csv", index=False)
+        output.to_csv(self.expath / f"submission-{self.exname}-{self.fold}.csv", index=False)
 
 
 class KeypointDataset(Dataset):
@@ -299,7 +401,7 @@ class KeypointDataset(Dataset):
         self.transforms = transforms
 
     def __len__(self) -> int:
-        return self.df.shape[0]
+        return len(self.image_files)
 
     def __getitem__(self, index: int):
         image_file = self.image_files[index]
@@ -348,11 +450,13 @@ def load_dataset(fold):
     transform_train = A.Compose(
         [
             # Crop으로 이미지 크기는 1100, 900이 되는 것
-            A.Crop(400, 100, 1500, 1000),
-            # TODO 이미 1100x900 이므로 resize는 하지 않는게 좋을지 확인해봐야함
-            # MMdetection 등에서는 800, 1333을 쓰니까, 그 사이즈가 더 유리할 수도 있다고는 생각된다.
-            # A.Resize(800, 1333),
+            A.Crop(400, 100, 1500, 1000),  # 1100x900
+            # A.Crop(300, 50, 1600, 1080),  # 1300x1030
+            # A.Crop(400, 50, 1500, 1080),  # 1100x1030
+            # MMDetection 등에서는 800x1333을 쓰니깐..?
+            A.Resize(800, 1333),
             A.HorizontalFlip(),
+            A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.0, rotate_limit=15),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
@@ -363,9 +467,9 @@ def load_dataset(fold):
         [
             # Crop으로 이미지 크기는 1100, 900이 되는 것
             A.Crop(400, 100, 1500, 1000),
-            # TODO 이미 1100x900 이므로 resize는 하지 않는게 좋을지 확인해봐야함
-            # MMdetection 등에서는 800, 1333을 쓰니까, 그 사이즈가 더 유리할 수도 있다고는 생각된다.
-            # A.Resize(800, 1333),
+            # A.Crop(300, 50, 1600, 1080),  # 1300x1030
+            # A.Crop(400, 50, 1500, 1080),  # 1100x1030
+            A.Resize(800, 1333),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
@@ -375,7 +479,9 @@ def load_dataset(fold):
     transform_test = A.Compose(
         [
             A.Crop(400, 100, 1500, 1000),
-            # A.Resize(800, 1333),
+            # A.Crop(300, 50, 1600, 1080),  # 1300x1030
+            # A.Crop(400, 50, 1500, 1080),  # 1100x1030
+            A.Resize(800, 1333),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
@@ -396,14 +502,14 @@ def load_dataset(fold):
     if BASELINE:
         np.random.seed(SEED)
         tidx = np.random.choice(tidx, 168)
-        # validation은 줄이지 않음 --> 성능 비교 확실하게 하기 위해
-        # vidx = np.random.choice(vidx, 42)
+        # validation은 줄이지 않음 --> validation도 줄인다. 너무 오래걸려...
+        vidx = np.random.choice(vidx, 42)
 
     tds = KeypointDataset(train_files[tidx], df[tidx], transforms=transform_train)
     vds = KeypointDataset(train_files[vidx], df[vidx], transforms=transform_valid)
     tdl = DataLoader(tds, **dl_kwargs, shuffle=True)
     vdl = DataLoader(vds, **dl_kwargs, shuffle=False)
-    return tdl, vdl
+    return tdl, vdl, dl_test
 
 
 def get_model() -> nn.Module:
@@ -438,12 +544,13 @@ def get_model() -> nn.Module:
 
 
 def main():
+    submission_df = pd.read_csv(DATA_DIR / "train_df.csv")
     model = get_model()
 
     if SAM:
-        optimizer = utils.SAM(model.parameters(), optim.AdamW, lr=1e-4)
+        optimizer = utils.SAM(model.parameters(), optim.AdamW, lr=LR)
     else:
-        optimizer = optim.AdamW(model.parameters(), lr=1e-4)
+        optimizer = optim.AdamW(model.parameters(), lr=LR)
 
     start_epoch = 1
     if CKPT is not None and Path(CKPT).exists():
@@ -455,9 +562,13 @@ def main():
 
     writer = SummaryWriter(LOG_DIR)
     logger = open(EXPATH / f"log-{FOLD}.log", "w")
-    tdl, vdl = load_dataset(FOLD)
+    logger.write(EXNAME + "\r\n")
+    logger.flush()
+
+    tdl, vdl, dl_test = load_dataset(FOLD)
     trainer = Trainer(model, optimizer, writer, logger, FOLD, EXPATH, EXNAME)
     trainer.fit(tdl, vdl, NUM_EPOCHS, start_epoch)
+    trainer.submission(dl_test, submission_df)
     logger.close()
 
 
