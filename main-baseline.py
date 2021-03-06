@@ -6,34 +6,6 @@
 - Crop을 안함
 - finetune 말고 처음부터
 
-====================================================================
-# 나중에 할 것
-
-
-====================================================================
-# 할 것
-
-* RMSE metric 추가
-* validation의 0번째 아이템으로 예제 이미지 추가
-* 마지막 convtranspose weight를 처음에 설정하는게 좋은지 아닌지
-* keypoint loss만으로 학습했을 때?
-
-* GeneralRCNN? 에서 loss 구하는 코드 구해서 따로 로스 구하는 식 만들어주기
-값이랑 loss를 둘 다 구할 수 있으면 좋겠다.
-
-* augmentation들
-    * shift
-    * scale
-    * blur
-    * gamma
-    * contrast
-    
-    * Rotation. limit=30
-        rotation 30부터는 keypoint가 밖으로 나가버리는건지 안된다...
-
-* efficientdet
-
-* scaled-yolo v4
 
 ====================================================================
 # 결과
@@ -84,26 +56,81 @@
     3.058709:3.648326 --> 2.808439:3.732426
 
 * Crop 1100x1030 + rotate30 (오류)
-* Crop 1100x1030 + rotate25 (s5)
+* Crop 1100x1030 + rotate25
     3.058709:3.648326 --> 3.172204:3.614873
-* Crop 1100x1030 + rotate25 (s3)
+* Crop 1100x1030 + rotate25
     3.058709:3.648326 --> 3.170852:3.649939
 
-* Crop 1100x1030 + rotate25 + shift0.01 (s3)
+* Crop 1100x1030 + rotate25 + shift0.01
     3.170852:3.649939 --> 2.988702:3.645297
 * Crop 1100x1030 + rotate25 + shift0.02
     3.170852:3.649939 --> 2.902854:3.772051
     shift는 오히려 나빠지기만 하는듯? rotate도 그닥 큰 효과는 없는거같고
 
-* Crop 1100x900 + rotate5 + shift0.02 (s5)
+* Crop 1100x900 + rotate5 + shift0.02
     2.902854:3.772051 --> 3.405847:3.727300 
-* Crop 1100x900 + rotate5 + shift0.03 (s3)
+* Crop 1100x900 + rotate5 + shift0.03
     2.902854:3.772051 --> 3.038964:3.756478 
 
-* Crop 1100x900 + rotate15 + shift0.02 (s5)
+* Crop 1100x900 + rotate15 + shift0.02
     2.902854:3.772051 --> 3.070648:3.690815 (*)
-* Crop 1100x900 + rotate25 + shift0.02 (s3)
+* Crop 1100x900 + rotate25 + shift0.02
     (오류)
+
+* Crop 1100x900 + rotate15 + shift0.02
+    3.070648:3.690815 == 3.087706:3.716364
+* Crop 1100x900 + rotate15 + shift0.02 - hoizontal_flip
+    3.070648:3.690815 --> 2.560510:3.427309 (horizontal flip은 빼는게 좋다?)
+
+* Crop 1100x900 + rotate15 + shift0.02 + blur7
+    3.145380:3.629517 blur가 도움이 되었다?
+* Crop 1100x900 + rotate15 + shift0.02 + gamma80_120
+* Crop 1100x900 + rotate15 + shift0.02 + brightness0.2
+
+// 데이터를 2배로 늘리고
+
+* Crop 1100x900 + rotate15 + shift0.02
+    2.639951:3.297648
+* Crop 1100x900 + rotate15 + shift0.02 - hoizontal_flip
+    2.701766:3.019309
+* Crop 1100x900 + rotate15 + shift0.02 + blur7
+    2.506098:3.252584
+* Crop 1100x900 + rotate15 + shift0.02 + gamma80_120
+    2.359201:3.329015
+* Crop 1100x900 + rotate15 + shift0.02 + brightness0.2
+    2.590074:3.251132
+
+* Crop 1100x900 + rotate15 + shift0.02 + contrast0.2
+    2.468286:3.318427
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2 baseline
+    2.421699:3.144095
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2 common (s3)
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2 common (s5)
+
+
+
+
+
+* efficientdet 모델 구조 / 입출력 확인
+
+* RMSE metric 추가
+* validation의 0번째 아이템으로 예제 이미지 추가
+* 마지막 convtranspose weight를 처음에 설정하는게 좋은지 아닌지
+* keypoint loss만으로 학습했을 때?
+
+* GeneralRCNN? 에서 loss 구하는 코드 구해서 따로 로스 구하는 식 만들어주기
+값이랑 loss를 둘 다 구할 수 있으면 좋겠다.
+
+* augmentation들
+    * shift
+    * scale
+    * contrast
+
+* efficientdet
+* scaled-yolo v4, v5
+* detectors
+
+* group normalization
 
 
 """
@@ -153,19 +180,19 @@ START_EPOCH = 1
 FINETUNE_EPOCH = 30
 NUM_EPOCHS = 200
 if BASELINE:
-    NUM_EPOCHS = 20
-    FINETUNE_EPOCH = 10
+    NUM_EPOCHS = 40
+    FINETUNE_EPOCH = 15
 
 CKPT = None
-LOG_DIR = Path("log" + ("/baseline" if BASELINE else ""))
-RESULT_DIR = Path("results" + ("/baseline" if BASELINE else ""))
+LOG_DIR = Path("log" + ("/baseline2" if BASELINE else "/_"))
+RESULT_DIR = Path("results" + ("/baseline2" if BASELINE else "/_"))
 COMMENTS = [
     MODEL,
     "SAM" if SAM else None,
     f"LR{LR}",
     f"fold{FOLD}",
     "baseline" if BASELINE else None,
-    "1100x900+rotate15+shift0.02",
+    "1100x900+rotate15+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2",
 ]
 EXPATH, EXNAME = utils.generate_experiment_directory(RESULT_DIR, COMMENTS)
 shutil.copy("main-baseline.py", EXPATH / "main-baseline.py")
@@ -449,14 +476,17 @@ def collate_fn(batch: torch.Tensor) -> Tuple:
 def load_dataset(fold):
     transform_train = A.Compose(
         [
-            # Crop으로 이미지 크기는 1100, 900이 되는 것
             A.Crop(400, 100, 1500, 1000),  # 1100x900
             # A.Crop(300, 50, 1600, 1080),  # 1300x1030
             # A.Crop(400, 50, 1500, 1080),  # 1100x1030
             # MMDetection 등에서는 800x1333을 쓰니깐..?
             A.Resize(800, 1333),
-            A.HorizontalFlip(),
-            A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.0, rotate_limit=15),
+            # A.HorizontalFlip(),
+            A.Blur(blur_limit=7),
+            A.RandomGamma(gamma_limit=(80, 120)),
+            A.RandomBrightness(limit=0.2),
+            # TODO contrast
+            A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.0, rotate_limit=0),  # TODO no rotate
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
@@ -465,8 +495,7 @@ def load_dataset(fold):
     )
     transform_valid = A.Compose(
         [
-            # Crop으로 이미지 크기는 1100, 900이 되는 것
-            A.Crop(400, 100, 1500, 1000),
+            A.Crop(400, 100, 1500, 1000),  # 1100x900
             # A.Crop(300, 50, 1600, 1080),  # 1300x1030
             # A.Crop(400, 50, 1500, 1080),  # 1100x1030
             A.Resize(800, 1333),
@@ -478,7 +507,7 @@ def load_dataset(fold):
     )
     transform_test = A.Compose(
         [
-            A.Crop(400, 100, 1500, 1000),
+            A.Crop(400, 100, 1500, 1000),  # 1100x900
             # A.Crop(300, 50, 1600, 1080),  # 1300x1030
             # A.Crop(400, 50, 1500, 1080),  # 1100x1030
             A.Resize(800, 1333),
@@ -501,9 +530,9 @@ def load_dataset(fold):
     # BASELINE 모드일 때는 5%의 데이터만 써서 학습
     if BASELINE:
         np.random.seed(SEED)
-        tidx = np.random.choice(tidx, 168)
+        tidx = np.random.choice(tidx, 336)
         # validation은 줄이지 않음 --> validation도 줄인다. 너무 오래걸려...
-        vidx = np.random.choice(vidx, 42)
+        vidx = np.random.choice(vidx, 84)
 
     tds = KeypointDataset(train_files[tidx], df[tidx], transforms=transform_train)
     vds = KeypointDataset(train_files[vidx], df[vidx], transforms=transform_valid)
