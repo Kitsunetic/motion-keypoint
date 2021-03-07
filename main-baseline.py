@@ -104,10 +104,16 @@
     2.468286:3.318427
 * Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2 baseline
     2.421699:3.144095
-* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2 common (s3)
-* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2 common (s5)
-
-
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2 common
+    1.669322:2.269937
+    submission에서 keypoint가 없는 오류?가 계속 있네
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2 common
+    1.877802:2.270343
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2-resize common
+    1.877802:2.270343
+* Crop 1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2 common
+    1.831885:2.259157
+* Crop 1100x900+shift0.02+hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2-resize common
 
 
 
@@ -138,16 +144,17 @@
 import math
 import os
 import random
+import shutil
 from collections import defaultdict
 from datetime import datetime
 from io import TextIOWrapper
 from pathlib import Path
 from typing import Callable, List, Sequence, Tuple
-import shutil
 
 import albumentations as A
 import cv2
 import imageio
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
@@ -192,7 +199,7 @@ COMMENTS = [
     f"LR{LR}",
     f"fold{FOLD}",
     "baseline" if BASELINE else None,
-    "1100x900+rotate15+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2",
+    "1100x900+shift0.02-hoizontal_flip+blur7+gamma80_120+brightness0.2+contrast0.2-resize",
 ]
 EXPATH, EXNAME = utils.generate_experiment_directory(RESULT_DIR, COMMENTS)
 shutil.copy("main-baseline.py", EXPATH / "main-baseline.py")
@@ -404,8 +411,10 @@ class Trainer:
                 for file, result_ in zip(files, results_):
                     keypoints = result_["keypoints"][0, :, :2].cpu().numpy()
                     # 이미지를 왼쪽 400, 위쪽 100만큼 잘라냈으므로 보상해줌
-                    keypoints[:, 0] = keypoints[:, 0] * (1100 / xs[0].size(2)) + 400
-                    keypoints[:, 1] = keypoints[:, 1] * (900 / xs[0].size(1)) + 100
+                    keypoints[:, 0] = keypoints[:, 0] + 400
+                    keypoints[:, 1] = keypoints[:, 1] + 100
+                    # keypoints[:, 0] = keypoints[:, 0] * (1100 / xs[0].size(2)) + 400
+                    # keypoints[:, 1] = keypoints[:, 1] * (900 / xs[0].size(1)) + 100
                     # keypoints[:, 0] = keypoints[:, 0] * (1300 / xs[0].size(2)) + 300
                     # keypoints[:, 1] = keypoints[:, 1] * (1080 / xs[0].size(1)) + 50
 
@@ -480,7 +489,7 @@ def load_dataset(fold):
             # A.Crop(300, 50, 1600, 1080),  # 1300x1030
             # A.Crop(400, 50, 1500, 1080),  # 1100x1030
             # MMDetection 등에서는 800x1333을 쓰니깐..?
-            A.Resize(800, 1333),
+            # A.Resize(800, 1333),
             # A.HorizontalFlip(),
             A.Blur(blur_limit=7),
             A.RandomGamma(gamma_limit=(80, 120)),
@@ -491,26 +500,26 @@ def load_dataset(fold):
             ToTensorV2(),
         ],
         bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"]),
-        keypoint_params=A.KeypointParams(format="xy"),
+        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
     )
     transform_valid = A.Compose(
         [
             A.Crop(400, 100, 1500, 1000),  # 1100x900
             # A.Crop(300, 50, 1600, 1080),  # 1300x1030
             # A.Crop(400, 50, 1500, 1080),  # 1100x1030
-            A.Resize(800, 1333),
+            # A.Resize(800, 1333),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
         bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"]),
-        keypoint_params=A.KeypointParams(format="xy"),
+        keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
     )
     transform_test = A.Compose(
         [
             A.Crop(400, 100, 1500, 1000),  # 1100x900
             # A.Crop(300, 50, 1600, 1080),  # 1300x1030
             # A.Crop(400, 50, 1500, 1080),  # 1100x1030
-            A.Resize(800, 1333),
+            # A.Resize(800, 1333),
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
