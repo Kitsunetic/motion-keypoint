@@ -172,6 +172,7 @@ from torchvision.ops import MultiScaleRoIAlign
 from tqdm import tqdm
 
 import utils
+import networks
 
 BASELINE = True
 MODEL = "keypointrcnn_resnet50_fpn_finetune"
@@ -491,11 +492,11 @@ def load_dataset(fold):
             # MMDetection 등에서는 800x1333을 쓰니깐..?
             # A.Resize(800, 1333),
             # A.HorizontalFlip(),
-            A.Blur(blur_limit=7),
-            A.RandomGamma(gamma_limit=(80, 120)),
-            A.RandomBrightness(limit=0.2),
+            # A.Blur(blur_limit=7),
+            # A.RandomGamma(gamma_limit=(80, 120)),
+            # A.RandomBrightness(limit=0.2),
             # TODO contrast
-            A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.0, rotate_limit=0),  # TODO no rotate
+            # A.ShiftScaleRotate(shift_limit=0.02, scale_limit=0.0, rotate_limit=0),  # TODO no rotate
             A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
             ToTensorV2(),
         ],
@@ -550,40 +551,9 @@ def load_dataset(fold):
     return tdl, vdl, dl_test
 
 
-def get_model() -> nn.Module:
-    if MODEL == "우주대마왕":
-        backbone = mobilenet_v2(pretrained=True).features
-        backbone.out_channels = 1280
-        roi_pooler = MultiScaleRoIAlign(featmap_names=["0"], output_size=7, sampling_ratio=2)
-
-        keypoint_roi_pooler = MultiScaleRoIAlign(featmap_names=["0"], output_size=14, sampling_ratio=2)
-
-        model = KeypointRCNN(
-            backbone,
-            num_classes=2,
-            num_keypoints=24,
-            box_roi_pool=roi_pooler,
-            keypoint_roi_pool=keypoint_roi_pooler,
-        )
-    elif MODEL == "keypointrcnn_resnet50_fpn_finetune":
-        model = keypointrcnn_resnet50_fpn(pretrained=True, progress=False)
-        for p in model.parameters():
-            p.requires_grad = False
-
-        m = nn.ConvTranspose2d(512, 24, 4, 2, 1)
-        with torch.no_grad():
-            m.weight[:, :17] = model.roi_heads.keypoint_predictor.kps_score_lowres.weight
-            m.bias[:17] = model.roi_heads.keypoint_predictor.kps_score_lowres.bias
-        model.roi_heads.keypoint_predictor.kps_score_lowres = m
-    else:
-        raise NotImplementedError()
-
-    return model.cuda()
-
-
 def main():
     submission_df = pd.read_csv(DATA_DIR / "train_df.csv")
-    model = get_model()
+    model = networks.get_model(MODEL)
 
     if SAM:
         optimizer = utils.SAM(model.parameters(), optim.AdamW, lr=LR)
