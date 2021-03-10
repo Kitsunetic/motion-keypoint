@@ -4,6 +4,7 @@ import random
 import re
 from datetime import datetime
 from pathlib import Path
+from torch.utils.data import Dataset
 from typing import Iterable
 
 import numpy as np
@@ -182,3 +183,27 @@ class CustomLogger:
     def fatal(self, *msg):
         msg = " ".join(map(str, msg))
         self._write(msg, "FATAL")
+
+
+class ChainDataset(Dataset):
+    def __init__(self, *ds_list: Dataset):
+        """
+        Combine multiple dataset into one.
+        Parameters
+        ----------
+        ds_list: list of datasets
+        """
+        self.ds_list = ds_list
+        self.len_list = [len(ds) for ds in self.ds_list]
+        self.total_len = sum(self.len_list)
+
+        self.idx_list = []
+        for i, l in enumerate(self.len_list):
+            self.idx_list.extend([(i, j) for j in range(l)])
+
+    def __len__(self):
+        return self.total_len
+
+    def __getitem__(self, idx):
+        didx, sidx = self.idx_list[idx]
+        return self.ds_list[didx][sidx]
