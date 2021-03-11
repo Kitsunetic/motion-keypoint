@@ -3,11 +3,8 @@ import os
 import random
 import shutil
 import json
-import logging
 import sys
-from collections import defaultdict
 from datetime import datetime
-from io import TextIOWrapper
 from pathlib import Path
 from typing import Callable, List, Sequence, Tuple
 
@@ -21,13 +18,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from albumentations.pytorch import ToTensorV2
 from sklearn.model_selection import KFold
 from torch import nn, optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, Dataset, Subset
-from torch.utils.tensorboard import SummaryWriter
-from torchvision.models.detection import fasterrcnn_resnet50_fpn
 from tqdm import tqdm
 
 import utils
@@ -37,24 +31,79 @@ import networks
 RESULT_DIR = Path("results/HRNet학습")
 
 LR = 1e-4  # transfer learning이니깐 좀 작게 주는게 좋을 것 같아서 1e-4
-BATCH_SIZE = 9
+BATCH_SIZE = 10
 START_EPOCH = 1
 SAM = False
 FOLDS = [1, 2, 3, 4, 5]
 HRNET_WIDTH = 48
-USE_L1 = False
+AUG_HORIZONTAL_FLIP = True
+AUG_SHIFT = False
 
 n = datetime.now()
 UID = f"{n.year:04d}{n.month:02d}{n.day:02d}-{n.hour:02d}{n.minute:02d}{n.second:02d}"
 SEED = 20210309
 
 
+df = pd.read_csv("data/ori/train_df.csv")
+c2i = {c: i for i, c in enumerate(df.columns[1:])}
+swap_columns = []
+for i, c in enumerate(df.columns[1:]):
+    if c.startswith("left_") and c.endswith("_x"):
+        swap_columns.append((i // 2, c2i["right_" + c[5:]] // 2))
+
+
+def horizontal_flip(x, keypoints, p=0.5):
+    if random.random() > p:
+        return x, keypoints
+
+    dx = torch.flip(x, dims=(2,))
+    maxw = x.size(2) // 4
+    keypoints[:, 0] = maxw - keypoints[:, 0]
+    for a, b in swap_columns:
+        temp = keypoints[a].clone()
+        keypoints[a] = keypoints[b].clone()
+        keypoints[b] = temp
+
+    return dx, keypoints
+
+
+def random_shift(x, keypoints, distance=20, p=0.5):
+    if random.random() > 1:
+        return x, keypoints
+
+    _, H, W = x.shape
+
+    # distance = min(keypoints[:, 0].min(), W - keypoints[:, 0].max(), keypoints[:, 1].min(), H - keypoints[:, 1].max())
+    # print(distance)
+
+    # yp = random.randint(-distance, distance)
+    # xp = random.randint(-distance, distance)
+    xp = random.randint(-8, 8)
+    yp = random.randint(-24, 24)
+    keypoints[:, 0] += xp // 4
+    keypoints[:, 1] += yp // 4
+
+    dx = torch.zeros_like(x)
+    dxl = xp if xp >= 0 else 0
+    dxr = W if xp >= 0 else W + xp
+    dxt = yp if yp >= 0 else 0
+    dxb = H if yp >= 0 else H + yp
+    xl = 0 if xp >= 0 else -xp
+    xr = W - xp if xp >= 0 else W
+    xt = 0 if yp >= 0 else -yp
+    xb = H - yp if yp >= 0 else H
+    dx[..., dxt:dxb, dxl:dxr] = x[..., xt:xb, xl:xr]
+
+    return dx, keypoints
+
+
 class ImageDataset(Dataset):
-    def __init__(self, files, offsets, keypoints=None):
+    def __init__(self, files, offsets, keypoints=None, augmentation=True):
         super().__init__()
         self.files = files
         self.offsets = offsets
         self.keypoints = keypoints
+        self.aug_prob = 0.5 if augmentation else 0.0
 
     def __len__(self):
         return len(self.files)
@@ -66,7 +115,7 @@ class ImageDataset(Dataset):
         # TODO 가로로 긴 영상이면 가로 길이가 768이 되도록 만들기
         ratio = torch.tensor([576 / W, 768 / H], dtype=torch.float32)
         img = cv2.resize(img, (576, 768))
-        x = torch.as_tensor(img, dtype=torch.float32).permute(2, 0, 1) / 255.0
+        x = torch.tensor(img, dtype=torch.float32).permute(2, 0, 1) / 255.0
         offset = torch.tensor(self.offsets[idx]["boxes"][:2], dtype=torch.int64)
 
         if self.keypoints is not None:
@@ -74,12 +123,19 @@ class ImageDataset(Dataset):
             keypoint[:, 0] = (keypoint[:, 0] - offset[0]) * ratio[0] / 4
             keypoint[:, 1] = (keypoint[:, 1] - offset[1]) * ratio[1] / 4
             keypoint = keypoint.type(torch.int64)
-            # TODO: 나중에 augmentation 추가
 
-            """# 좌표값 keypoint를 24차원 평면으로 변환
+            # Augmentation
+            if AUG_HORIZONTAL_FLIP:
+                x, keypoint = horizontal_flip(x, keypoint, p=self.aug_prob)
+            if AUG_SHIFT:
+                x, keypoint = random_shift(x, keypoint, p=self.aug_prob)
+
+            """
+            # 좌표값 keypoint를 24차원 평면으로 변환
             y = torch.zeros(24, 768 // 4, 576 // 4, dtype=torch.int64)
             for i in range(24):
-                y[i, keypoint[i, 1] // 4, keypoint[i, 0] // 4] = 1"""
+                y[i, keypoint[i, 1] // 4, keypoint[i, 0] // 4] = 1
+            """
             # 좌표값 keypoint를 1차원 벡터의 위치 값으로 변환
             y = keypoint[:, 0] + keypoint[:, 1] * (576 // 4)
 
@@ -92,6 +148,11 @@ class KeypointLoss(nn.Module):
         x = x.flatten(2).flatten(0, 1)
         y = y.flatten(0, 1)
         return F.cross_entropy(x, y)
+        """
+        x = F.log_softmax(x.flatten(2), dim=2)
+        y = y.flatten(2)
+        return (y - x).mean()
+        """
 
 
 class KeypointRMSE(nn.Module):
@@ -179,7 +240,8 @@ def main(fold):
     log.info("SAM:", SAM)
     log.info("FOLD:", fold)
     log.info("HRNET_WIDTH:", HRNET_WIDTH)
-    log.info("USE_L1:", USE_L1)
+    log.info("AUG_HORIZONTAL_FLIP:", AUG_HORIZONTAL_FLIP)
+    log.info("AUG_SHIFT:", AUG_SHIFT)
 
     train_imgs = np.array(sorted(list(Path("data/box2/train_imgs/").glob("*.jpg"))))
     test_imgs = np.array(sorted(list(Path("data/box2/test_imgs/").glob("*.jpg"))))
@@ -201,10 +263,7 @@ def main(fold):
     model.final_layer = final_layer
     model = model.cuda()
 
-    if USE_L1:
-        criterion = nn.L1Loss().cuda()
-    else:
-        criterion = KeypointLoss().cuda()
+    criterion = KeypointLoss().cuda()
     criterion_rmse = KeypointRMSE().cuda()
 
     if SAM:

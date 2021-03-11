@@ -1,4 +1,6 @@
 import math
+import matplotlib.pyplot as plt
+import cv2
 import os
 import random
 import re
@@ -207,3 +209,132 @@ class ChainDataset(Dataset):
     def __getitem__(self, idx):
         didx, sidx = self.idx_list[idx]
         return self.ds_list[didx][sidx]
+
+
+def draw_keypoints(image: np.ndarray, keypoints: np.ndarray):
+    edges = [
+        (0, 1),
+        (0, 2),
+        (2, 4),
+        (1, 3),
+        (6, 8),
+        (8, 10),
+        (5, 7),
+        (7, 9),
+        (11, 13),
+        (13, 15),
+        (12, 14),
+        (14, 16),
+        (5, 6),
+        (15, 22),
+        (16, 23),
+        (11, 21),
+        (21, 12),
+        (20, 21),
+        (5, 20),
+        (6, 20),
+        (17, 6),
+        (17, 5),
+    ]
+    keypoint_names = [
+        "nose_x",
+        "nose_y",
+        "left_eye_x",
+        "left_eye_y",
+        "right_eye_x",
+        "right_eye_y",
+        "left_ear_x",
+        "left_ear_y",
+        "right_ear_x",
+        "right_ear_y",
+        "left_shoulder_x",
+        "left_shoulder_y",
+        "right_shoulder_x",
+        "right_shoulder_y",
+        "left_elbow_x",
+        "left_elbow_y",
+        "right_elbow_x",
+        "right_elbow_y",
+        "left_wrist_x",
+        "left_wrist_y",
+        "right_wrist_x",
+        "right_wrist_y",
+        "left_hip_x",
+        "left_hip_y",
+        "right_hip_x",
+        "right_hip_y",
+        "left_knee_x",
+        "left_knee_y",
+        "right_knee_x",
+        "right_knee_y",
+        "left_ankle_x",
+        "left_ankle_y",
+        "right_ankle_x",
+        "right_ankle_y",
+        "neck_x",
+        "neck_y",
+        "left_palm_x",
+        "left_palm_y",
+        "right_palm_x",
+        "right_palm_y",
+        "spine2(back)_x",
+        "spine2(back)_y",
+        "spine1(waist)_x",
+        "spine1(waist)_y",
+        "left_instep_x",
+        "left_instep_y",
+        "right_instep_x",
+        "right_instep_y",
+    ]
+    image = image.copy()
+
+    np.random.seed(42)
+    colors = {k: tuple(map(int, np.random.randint(0, 255, 3))) for k in range(24)}
+    x1, y1 = min(keypoints[:, 0]), min(keypoints[:, 1])
+    x2, y2 = max(keypoints[:, 0]), max(keypoints[:, 1])
+    cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
+
+    for i, keypoint in enumerate(keypoints):
+        cv2.circle(image, tuple(keypoint), 3, colors.get(i), thickness=3, lineType=cv2.FILLED)
+
+        cv2.putText(
+            image,
+            f"{i}: {keypoint_names[i*2]}",
+            tuple(keypoint),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 0, 0),
+            1,
+        )
+
+    for i, edge in enumerate(edges):
+        cv2.line(
+            image,
+            tuple(keypoints[edge[0]]),
+            tuple(keypoints[edge[1]]),
+            colors.get(edge[0]),
+            3,
+            lineType=cv2.LINE_AA,
+        )
+
+    plt.figure(figsize=(8, 8))
+    plt.imshow(image)
+    plt.axis("off")
+    plt.tight_layout()
+    # plt.savefig("example.png")
+    # imageio.imwrite("example.png", image)
+    plt.show()
+
+
+def channel2point(p):
+    # input: [24, 192, 144]
+    pos = torch.argmax(p.flatten(1), 1)
+    y = pos // 144
+    x = pos % 144
+    return torch.stack([x, y], 1).numpy() * 4
+
+
+def nums2keypoints(nums):
+    x = nums % 144
+    y = nums // 144
+    return torch.stack([x, y], 1)
