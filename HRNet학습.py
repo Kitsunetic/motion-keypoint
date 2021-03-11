@@ -184,7 +184,7 @@ def train_loop(dl: DataLoader, model, epoch, criterion, criterion_rmse, optimize
             loss.backward()
             if isinstance(optimizer, utils.SAM):
                 optimizer.first_step()
-                loss = criterion(model(x_), y_).backward()
+                criterion(model(x_), y_).backward()
                 optimizer.second_step()
             else:
                 optimizer.step()
