@@ -317,6 +317,12 @@ def draw_keypoints(image: np.ndarray, keypoints: np.ndarray):
             lineType=cv2.LINE_AA,
         )
 
+    return image
+
+
+def draw_keypoints_show(image: np.ndarray, keypoints: np.ndarray):
+    image = draw_keypoints(image, keypoints)
+
     plt.figure(figsize=(8, 8))
     plt.imshow(image)
     plt.axis("off")
@@ -338,3 +344,18 @@ def nums2keypoints(nums):
     x = nums % 144
     y = nums // 144
     return torch.stack([x, y], 1)
+
+
+def get_single_person_rois(out):
+    max_area = 0
+    max_idx = 0
+    for i, (roi, class_id, score) in enumerate(zip(out["rois"], out["class_ids"], out["scores"])):
+        if class_id != 0:
+            continue
+
+        area = (roi[2] - roi[0]) * (roi[3] - roi[1])
+        if max_area < area:
+            max_area = area
+            max_idx = i
+
+    return out["rois"][max_idx].astype(np.int64)
