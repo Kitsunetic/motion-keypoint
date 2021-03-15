@@ -40,11 +40,12 @@ RESULT_DIR = Path("results/HRNet학습-box_effdet")
 LR = 1e-4  # transfer learning이니깐 좀 작게 주는게 좋을 것 같아서 1e-4
 BATCH_SIZE = 10
 START_EPOCH = 1
-SAM = False
+SAM = True
 FOLDS = [1, 2, 3, 4, 5]
 HRNET_WIDTH = 48
 AUG_HORIZONTAL_FLIP = True
 AUG_SHIFT = True
+NORMALIZE = True
 
 n = datetime.now()
 UID = f"{n.year:04d}{n.month:02d}{n.day:02d}-{n.hour:02d}{n.minute:02d}{n.second:02d}"
@@ -131,7 +132,8 @@ class ImageDataset(Dataset):
 
         # Standardization. HRNet도 standardization 하고 있음.
         # Pretrained weight를 제대로 쓰고 싶다면 standardization은 필수
-        x = (x - MEAN) / STD
+        if NORMALIZE:
+            x = (x - MEAN) / STD
 
         # box값으로 전체 이미지에 대한 keypoint와 국소 keypoint로 서로 왕래할 수 있음
         offset = torch.tensor(self.offsets[idx]["boxes"][:2], dtype=torch.int64)
