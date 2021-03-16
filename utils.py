@@ -7,7 +7,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from torch.utils.data import Dataset
-from typing import Iterable
+from typing import Iterable, List
 
 import numpy as np
 import pandas as pd
@@ -292,7 +292,7 @@ def draw_keypoints(image: np.ndarray, keypoints: np.ndarray):
     colors = {k: tuple(map(int, np.random.randint(0, 255, 3))) for k in range(24)}
     x1, y1 = min(keypoints[:, 0]), min(keypoints[:, 1])
     x2, y2 = max(keypoints[:, 0]), max(keypoints[:, 1])
-    cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
+    # cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
 
     for i, keypoint in enumerate(keypoints):
         cv2.circle(image, tuple(keypoint), 3, colors.get(i), thickness=3, lineType=cv2.FILLED)
@@ -359,3 +359,78 @@ def get_single_person_rois(out):
             max_idx = i
 
     return out["rois"][max_idx].astype(np.int64)
+
+
+def resize_box(
+    img: np.ndarray,
+    opad: int,
+    box: List[int],
+    keypoint: np.ndarray = None,
+    dst_h=768,
+    dst_w=576,
+    ori_pad_h=38,
+    ori_pad_w=374,
+):
+    """
+    - img: 입력 이미지
+    - keypoint: 입력 키포인트
+    - opad: 키포인트 바깥에 기본적으로 둘 padding
+    - box: detection 모델에서 구해진 roi
+    - dst_h, dst_w: 최종 이미지의 사이즈
+    - ori_pad_h, ori_pad_w: 기본적으로 더해지는 offset
+    """
+    x = img
+
+    box = [box[0] - opad, box[1] - opad, box[2] + opad, box[3] + opad]
+    h, w = box[3] - box[1], box[2] - box[0]
+    if h > w:
+        ratio = dst_h / h
+        jw = dst_w / ratio
+        center_w = (box[0] + box[2]) / 2
+        dbox = [int(center_w - jw / 2), box[1], int(center_w + jw / 2), box[3]]
+
+        # 초과분은 zero padding
+        zpad = [0, 0]
+        if dbox[0] < 0:
+            zpad[0] = -dbox[0]
+            dbox[0] = 0
+        if dbox[2] > x.shape[1]:
+            zpad[1] = dbox[2] - x.shape[1]
+            dbox[2] = x.shape[1]
+
+        x = x[dbox[1] : dbox[3], dbox[0] : dbox[2]]
+        pad1 = np.zeros((x.shape[0], zpad[0], 3), dtype=np.uint8)
+        pad2 = np.zeros((x.shape[0], zpad[1], 3), dtype=np.uint8)
+        x = np.concatenate([pad1, x, pad2], 1)
+    else:
+        ratio = dst_w / w
+        jh = dst_h / ratio
+        center_h = (box[1] + box[3]) / 2
+        dbox = [box[0], int(center_h - jh / 2), box[2], int(center_h + jh / 2)]
+
+        # 초과분은 zero padding
+        zpad = [0, 0]
+        if dbox[1] < 0:
+            zpad[0] = -dbox[1]
+            dbox[1] = 0
+        if dbox[3] > x.shape[0]:
+            zpad[1] = dbox[3] - x.shape[0]
+            dbox[3] = x.shape[0]
+
+        x = x[dbox[1] : dbox[3], dbox[0] : dbox[2]]
+        pad1 = np.zeros((zpad[0], x.shape[1], 3), dtype=np.uint8)
+        pad2 = np.zeros((zpad[1], x.shape[1], 3), dtype=np.uint8)
+        x = np.concatenate([pad1, x, pad2], 0)
+
+    x = cv2.resize(x, (dst_w, dst_h), interpolation=cv2.INTER_LANCZOS4)
+    offset = [int(dbox[0] + ori_pad_w), int(dbox[1] + ori_pad_h)]
+
+    if keypoint is not None:
+        k = keypoint.copy()
+        k[:, 0] -= offset[0]
+        k[:, 1] -= offset[1]
+        k *= ratio
+
+        return x, k, offset, ratio
+    else:
+        return x, offset, ratio
