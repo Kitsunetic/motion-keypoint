@@ -35,7 +35,7 @@ import networks
 from error_list import error_list
 
 
-RESULT_DIR = Path("results/HRNet학습-box_effdet")
+RESULT_DIR = Path("results/HRNet학습-effdet2")
 
 LR = 1e-4  # transfer learning이니깐 좀 작게 주는게 좋을 것 같아서 1e-4
 BATCH_SIZE = 10
@@ -122,12 +122,6 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         f = self.imdir / self.offsets[idx]["image"]
         x = imageio.imread(f)
-        H, W, _ = x.shape
-
-        # TODO 가로로 긴 영상이면 가로 길이가 768이 되도록 만들기
-        # 지금은 그냥 576x768로 resize해서 왜곡이 생겨서 성능 악화가 있을거 같음
-        ratio = torch.tensor([576 / W, 768 / H], dtype=torch.float32)
-        x = cv2.resize(x, (576, 768))
         x = torch.tensor(x, dtype=torch.float32).permute(2, 0, 1) / 255.0
 
         # Standardization. HRNet도 standardization 하고 있음.
@@ -136,12 +130,13 @@ class ImageDataset(Dataset):
             x = (x - MEAN) / STD
 
         # box값으로 전체 이미지에 대한 keypoint와 국소 keypoint로 서로 왕래할 수 있음
+        ratio = torch.tensor(self.offsets[idx]["ratio"], dtype=torch.float32)
         offset = torch.tensor(self.offsets[idx]["boxes"][:2], dtype=torch.int64)
 
         if self.keypoints is not None:
             keypoint = torch.tensor(self.keypoints[idx], dtype=torch.float32)
-            keypoint[:, 0] = (keypoint[:, 0] - offset[0]) * ratio[0] / 4
-            keypoint[:, 1] = (keypoint[:, 1] - offset[1]) * ratio[1] / 4
+            keypoint[:, 0] = (keypoint[:, 0] - offset[0]) * ratio / 4
+            keypoint[:, 1] = (keypoint[:, 1] - offset[1]) * ratio / 4
             keypoint = keypoint.type(torch.int64)
 
             # Augmentation
@@ -179,12 +174,14 @@ class KeypointLoss(nn.Module):
 
 class KeypointRMSE(nn.Module):
     @torch.no_grad()
-    def forward(self, x, y):
+    def forward(self, x, y, ratio):
         W = x.size(3)
         xp = x.flatten(2).argmax(2)
         xx, xy = xp % W, xp // W
         yx, yy = y % W, y // W
-        return 4 * ((xx - yx) ** 2 + (xy - yy) ** 2).type(torch.float32).mean().sqrt()
+
+        loss = (4 * ((xx - yx) ** 2 + (xy - yy) ** 2) * (ratio ** 2)).type(torch.float32)
+        return loss.mean().sqrt()
 
 
 def train_loop(dl: DataLoader, model, epoch, criterion, criterion_rmse, optimizer):
@@ -265,12 +262,12 @@ def main(fold):
     log.info("AUG_HORIZONTAL_FLIP:", AUG_HORIZONTAL_FLIP)
     log.info("AUG_SHIFT:", AUG_SHIFT)
 
-    train_imdir = Path("data/box_effdet/train_imgs/")
-    test_imdir = Path("data/box_effdet/test_imgs/")
-    df = pd.read_csv("data/ori/train_df.csv")
+    train_imdir = Path("data/box_effdet2/train_imgs/")
+    test_imdir = Path("data/box_effdet2/test_imgs/")
+    df = pd.read_csv("data/box_effdet2/train_df.csv")
     keypoints = df.to_numpy()[:, 1:].astype(np.float32)
     keypoints = np.stack([keypoints[:, 0::2], keypoints[:, 1::2]], axis=2)
-    with open("data/box_effdet/offset.json", "r") as f:
+    with open("data/box_effdet2/offset.json", "r") as f:
         offsets = json.load(f)
 
     # 잘못 매칭된 키포인드들 제거
