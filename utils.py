@@ -434,3 +434,12 @@ def resize_box(
         return x, k, offset, ratio
     else:
         return x, offset, ratio
+
+
+def imshow_horizon(*ims, figsize=(12, 6)):
+    plt.figure(figsize=figsize)
+    for i, im in enumerate(ims, 1):
+        plt.subplot(1, len(ims), i)
+        plt.imshow(im)
+    plt.tight_layout()
+    plt.show()

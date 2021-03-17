@@ -320,7 +320,7 @@ def main(fold):
         vloss, vrmse, vres = valid_loop(dl_valid, model, epoch, criterion, criterion_rmse, optimizer)
 
         # Logging
-        log.info(f"Epoch: {epoch:03d}, loss: {tloss:.6f} ; {vloss:.6f}, rmse {trmse:.6f} ; {vrmse:.6f}")
+        log.info(f"Epoch: {epoch:03d}, loss: {tloss:.6f};{vloss:.6f}, rmse {trmse:.6f};{vrmse:.6f}")
         scheduler.step(vloss)
 
         # Earlystop
