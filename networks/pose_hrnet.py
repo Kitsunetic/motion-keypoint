@@ -375,3 +375,21 @@ class PoseHighResolutionNet(nn.Module):
                 for name, _ in m.named_parameters():
                     if name in ["bias"]:
                         nn.init.constant_(m.bias, 0)
+
+    def freeze_head(self):
+        for p in self.parameters():
+            p.requires_grad_(True)
+        self.final_layer.requires_grad_(False)
+
+    def freeze_tail(self):
+        for p in self.parameters():
+            p.requires_grad_(False)
+        self.final_layer.requires_grad_(True)
+
+    def freeze_all(self):
+        for p in self.parameters():
+            p.requires_grad_(False)
+
+    def unfreeze_all(self):
+        for p in self.parameters():
+            p.requires_grad_(True)

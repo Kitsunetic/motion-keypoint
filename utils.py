@@ -2,10 +2,12 @@ import math
 import os
 import random
 import re
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List
 
+import albumentations as A
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +17,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from albumentations.augmentations import functional as AF
 from albumentations.core.transforms_interface import DualTransform
+from PIL import Image
 from torch.utils.data import Dataset
 
 
@@ -328,7 +331,7 @@ def draw_keypoints(image: np.ndarray, keypoints: np.ndarray):
 def draw_keypoints_show(image: np.ndarray, keypoints: np.ndarray):
     image = draw_keypoints(image, keypoints)
 
-    plt.figure(figsize=(8, 8))
+    plt.figure(figsize=(16, 8))
     plt.imshow(image)
     plt.axis("off")
     plt.tight_layout()
@@ -337,7 +340,7 @@ def draw_keypoints_show(image: np.ndarray, keypoints: np.ndarray):
     plt.show()
 
 
-def channels2keypoints(p: torch.Tensor):
+def heatmaps2keypoints(p: torch.Tensor):
     # input: [24, 192, 144]
     pos = torch.argmax(p.flatten(1), 1)
     y = pos // 144
@@ -345,7 +348,7 @@ def channels2keypoints(p: torch.Tensor):
     return torch.stack([x, y], 1)
 
 
-def keypoints2channels(k: torch.Tensor, h=768 // 4, w=576 // 4):
+def keypoints2heatmaps(k: torch.Tensor, h=768 // 4, w=576 // 4):
     k = k.type(torch.int64)
     c = torch.zeros(k.size(0), h, w, dtype=torch.float32)
     for i, (x, y) in enumerate(k):
@@ -458,34 +461,28 @@ def imshow_horizon(*ims, figsize=(12, 6)):
     plt.show()
 
 
-class HorizontalFlipEx(DualTransform):
-    """Flip the input horizontally around the y-axis.
-    Args:
-        p (float): probability of applying the transform. Default: 0.5.
-    Targets:
-        image, mask, bboxes, keypoints
-    Image types:
-        uint8, float32
-    """
+class HorizontalFlipEx(A.HorizontalFlip):
+    swap_columns = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (18, 19), (22, 23)]
 
-    def __init__(self, always_apply, p):
-        super().__init__(always_apply=always_apply, p=p)
+    def apply_to_keypoints(self, keypoints, **params):
+        keypoints = super().apply_to_keypoints(keypoints, **params)
 
-    def apply(self, img, **params):
-        if img.ndim == 3 and img.shape[2] > 1 and img.dtype == np.uint8:
-            # Opencv is faster than numpy only in case of
-            # non-gray scale 8bits images
-            return AF.hflip_cv2(img)
+        # left/right 키포인트들은 서로 swap해주기
+        for a, b in self.swap_columns:
+            temp1 = deepcopy(keypoints[a])
+            temp2 = deepcopy(keypoints[b])
+            keypoints[a] = temp2
+            keypoints[b] = temp1
 
-        return AF.hflip(img)
+        return keypoints
 
-    def apply_to_bbox(self, bbox, **params):
-        return AF.bbox_hflip(bbox, **params)
 
-    def apply_to_keypoint(self, keypoint, **params):
-        keypoint = AF.keypoint_hflip(keypoint, **params)
-        # TODO left/right 키포인트들은 서로 swap해주기
-        return keypoint
-
-    def get_transform_init_args_names(self):
-        return ()
+def keypoint2box(keypoint, padding=0):
+    return np.array(
+        [
+            keypoint[:, 0].min() - padding,
+            keypoint[:, 1].min() - padding,
+            keypoint[:, 0].max() + padding,
+            keypoint[:, 1].max() + padding,
+        ]
+    )
