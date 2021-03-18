@@ -1556,7 +1556,12 @@ class EfficientDet(nn.Module):
         else:
             _, regression, classification, anchors = self.model(imgs)
             cls_loss, reg_loss = self.criterion(classification, regression, anchors, annotations)
-            return cls_loss, reg_loss
+            # return cls_loss, reg_loss
+
+            cls_loss = cls_loss.mean()
+            reg_loss = reg_loss.mean()
+            loss = cls_loss + reg_loss
+            return loss
 
 
 """========================================================================

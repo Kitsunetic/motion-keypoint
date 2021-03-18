@@ -1,19 +1,21 @@
 import math
-import matplotlib.pyplot as plt
-import cv2
 import os
 import random
 import re
 from datetime import datetime
 from pathlib import Path
-from torch.utils.data import Dataset
 from typing import Iterable, List
 
+import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from albumentations.augmentations import functional as AF
+from albumentations.core.transforms_interface import DualTransform
+from torch.utils.data import Dataset
 
 
 def seed_everything(seed, deterministic=False):
@@ -186,6 +188,9 @@ class CustomLogger:
         msg = " ".join(map(str, msg))
         self._write(msg, "FATAL")
 
+    def flush(self):
+        self.file.flush()
+
 
 class ChainDataset(Dataset):
     def __init__(self, *ds_list: Dataset):
@@ -290,9 +295,9 @@ def draw_keypoints(image: np.ndarray, keypoints: np.ndarray):
 
     np.random.seed(42)
     colors = {k: tuple(map(int, np.random.randint(0, 255, 3))) for k in range(24)}
-    x1, y1 = min(keypoints[:, 0]), min(keypoints[:, 1])
-    x2, y2 = max(keypoints[:, 0]), max(keypoints[:, 1])
-    # cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
+    x1, y1 = max(0, min(keypoints[:, 0]) - 10), max(0, min(keypoints[:, 1]) - 10)
+    x2, y2 = min(image.shape[1], max(keypoints[:, 0]) + 10), min(image.shape[0], max(keypoints[:, 1]) + 10)
+    cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
 
     for i, keypoint in enumerate(keypoints):
         cv2.circle(image, tuple(keypoint), 3, colors.get(i), thickness=3, lineType=cv2.FILLED)
@@ -332,12 +337,20 @@ def draw_keypoints_show(image: np.ndarray, keypoints: np.ndarray):
     plt.show()
 
 
-def channel2point(p):
+def channels2keypoints(p: torch.Tensor):
     # input: [24, 192, 144]
     pos = torch.argmax(p.flatten(1), 1)
     y = pos // 144
     x = pos % 144
-    return torch.stack([x, y], 1).numpy() * 4
+    return torch.stack([x, y], 1)
+
+
+def keypoints2channels(k: torch.Tensor, h=768 // 4, w=576 // 4):
+    k = k.type(torch.int64)
+    c = torch.zeros(k.size(0), h, w, dtype=torch.float32)
+    for i, (x, y) in enumerate(k):
+        c[i, y, x] = 1.0
+    return c
 
 
 def nums2keypoints(nums):
@@ -443,3 +456,36 @@ def imshow_horizon(*ims, figsize=(12, 6)):
         plt.imshow(im)
     plt.tight_layout()
     plt.show()
+
+
+class HorizontalFlipEx(DualTransform):
+    """Flip the input horizontally around the y-axis.
+    Args:
+        p (float): probability of applying the transform. Default: 0.5.
+    Targets:
+        image, mask, bboxes, keypoints
+    Image types:
+        uint8, float32
+    """
+
+    def __init__(self, always_apply, p):
+        super().__init__(always_apply=always_apply, p=p)
+
+    def apply(self, img, **params):
+        if img.ndim == 3 and img.shape[2] > 1 and img.dtype == np.uint8:
+            # Opencv is faster than numpy only in case of
+            # non-gray scale 8bits images
+            return AF.hflip_cv2(img)
+
+        return AF.hflip(img)
+
+    def apply_to_bbox(self, bbox, **params):
+        return AF.bbox_hflip(bbox, **params)
+
+    def apply_to_keypoint(self, keypoint, **params):
+        keypoint = AF.keypoint_hflip(keypoint, **params)
+        # TODO left/right 키포인트들은 서로 swap해주기
+        return keypoint
+
+    def get_transform_init_args_names(self):
+        return ()
