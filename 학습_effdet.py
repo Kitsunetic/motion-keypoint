@@ -74,17 +74,6 @@ total_keypoints = df.to_numpy()[:, 1:].astype(np.float32)
 total_keypoints = np.stack([total_keypoints[:, 0::2], total_keypoints[:, 1::2]], axis=2)
 
 
-def keypoint2box(keypoint, padding=0):
-    return np.array(
-        [
-            keypoint[:, 0].min() - padding,
-            keypoint[:, 1].min() - padding,
-            keypoint[:, 0].max() + padding,
-            keypoint[:, 1].max() + padding,
-        ]
-    )
-
-
 class DetectionDataset(Dataset):
     def __init__(self, files, keypoints=None, augmentation=True, padding=30):
         super().__init__()
@@ -123,7 +112,7 @@ class DetectionDataset(Dataset):
         image = imageio.imread(self.files[idx])
 
         if self.keypoints is not None:
-            box = keypoint2box(self.keypoints[idx], self.padding)
+            box = utils.keypoint2box(self.keypoints[idx], self.padding)
             box = np.expand_dims(box, 0)
             labels = np.array([0], dtype=np.int64)
             a = self.transform(image=image, labels=labels, bboxes=box)
