@@ -45,7 +45,8 @@ FOLDS = [1, 2, 3, 4, 5]
 HRNET_WIDTH = 48
 AUG_HORIZONTAL_FLIP = True
 AUG_SHIFT = True
-NORMALIZE = True
+NORMALIZE = False
+LOSS_TYPE = "BCE"  # CE, BCE, L1
 
 n = datetime.now()
 UID = f"{n.year:04d}{n.month:02d}{n.day:02d}-{n.hour:02d}{n.minute:02d}{n.second:02d}"
@@ -146,15 +147,13 @@ class ImageDataset(Dataset):
                 if AUG_SHIFT:
                     x, keypoint = random_shift(x, keypoint, p=0.5)
 
-            """
-            # 좌표값 keypoint를 24차원 평면으로 변환 --> L1 loss
-            y = torch.zeros(24, 768 // 4, 576 // 4, dtype=torch.int64)
-            for i in range(24):
-                y[i, keypoint[i, 1] // 4, keypoint[i, 0] // 4] = 1
-            """
-            # 좌표값 keypoint를 1차원 벡터의 위치 값으로 변환 --> 각 keypoint마다 cross entropy 이후 reduction.
-            # TODO cross entropy는 가로세로 위치에 대한 영향은 신경쓰지 않음. 이 부분 어찌 향상시킬 방법 없을까?
-            y = keypoint[:, 0] + keypoint[:, 1] * (576 // 4)
+            if USE_BCE_LOSS:
+                # 좌표값 keypoint를 24차원 평면으로 변환 --> BCE Loss or L1 Loss
+                y = utils.keypoints2channels(keypoint)
+            else:
+                # 좌표값 keypoint를 1차원 벡터의 위치 값으로 변환 --> 각 keypoint마다 cross entropy 이후 reduction.
+                # TODO cross entropy는 가로세로 위치에 대한 영향은 신경쓰지 않음. 이 부분 어찌 향상시킬 방법 없을까?
+                y = keypoint[:, 0] + keypoint[:, 1] * (576 // 4)
 
             return f.name, x, offset, ratio, y
         return f.name, x, offset, ratio
