@@ -341,10 +341,10 @@ def draw_keypoints_show(image: np.ndarray, keypoints: np.ndarray):
 
 
 def heatmaps2keypoints(p: torch.Tensor):
-    # input: [24, 192, 144]
+    W = p.size(2)
     pos = torch.argmax(p.flatten(1), 1)
-    y = pos // 144
-    x = pos % 144
+    y = pos // W
+    x = pos % W
     return torch.stack([x, y], 1)
 
 
