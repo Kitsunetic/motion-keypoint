@@ -53,6 +53,7 @@ START_EPOCH = 1
 SAM = True
 FOLDS = [1, 2, 3, 4, 5]
 PADDING = 30
+ADD_JOINT_LOSS = True
 
 n = datetime.now()
 UID = f"{n.year:04d}{n.month:02d}{n.day:02d}-{n.hour:02d}{n.minute:02d}{n.second:02d}"
@@ -72,6 +73,7 @@ log.info("START_EPOCH:", START_EPOCH)
 log.info("SAM:", SAM)
 log.info("FOLDS:", FOLDS)
 log.info("PADDING:", PADDING)
+log.info("ADD_JOINT_LOSS:", ADD_JOINT_LOSS)
 log.flush()
 
 """
@@ -225,15 +227,54 @@ class JointMSELoss(nn.Module):
 
 
 class KeypointLoss(nn.Module):
+    def __init__(self, joint=False, use_target_weight=False):
+        super().__init__()
+        self.criterion = nn.MSELoss(reduction="mean")
+        self.joint = joint
+        self.use_target_weight = use_target_weight
+
     def forward(self, x, y):
         x = x.flatten(2).flatten(0, 1)
         y = y.flatten(2).flatten(0, 1).argmax(1)
-        return F.cross_entropy(x, y)
+        loss1 = F.cross_entropy(x, y)
+
+        if self.joint:
+            loss2 = self.joint_mse_loss(x, y)
+            return loss1 + loss2
+        else:
+            return loss1
+
+    def joint_mse_loss(self, output, target, target_weight=None):
+        batch_size = output.size(0)
+        num_joints = output.size(1)
+        heatmaps_pred = output.reshape((batch_size, num_joints, -1)).split(1, 1)
+        heatmaps_gt = target.reshape((batch_size, num_joints, -1)).split(1, 1)
+        loss = 0
+
+        for idx in range(num_joints):
+            heatmap_pred = heatmaps_pred[idx].squeeze()
+            heatmap_gt = heatmaps_gt[idx].squeeze()
+            if self.use_target_weight:
+                loss += 0.5 * self.criterion(heatmap_pred.mul(target_weight[:, idx]), heatmap_gt.mul(target_weight[:, idx]))
+            else:
+                loss += 0.5 * self.criterion(heatmap_pred, heatmap_gt)
+
+        return loss / num_joints
 
 
 class KeypointRMSE(nn.Module):
     @torch.no_grad()
-    def forward(self, x, y, ratios):
+    def forward(self, pred_heatmaps: torch.Tensor, real_heatmaps: torch.Tensor, ratios: torch.Tensor):
+        B, C, H, W = pred_heatmaps.shape
+        pred_positions = pred_heatmaps.flatten(2).argmax(2)
+        real_positions = real_heatmaps.flatten(2).argmax(2)
+        pred_positions = torch.stack((pred_positions // W, pred_positions % W), 2)
+        real_positions = torch.stack((real_positions // W, real_positions % W), 2)
+        pred_positions *= 4 / ratios
+        real_positions *= 4 / ratios
+        loss = (pred_positions - real_positions).square().mean().sqrt()
+
+        """
         W = x.size(3)
         xp = x.flatten(2).argmax(2)
         xx = (xp % W) / ratios[:, 0:1] * 4
@@ -244,6 +285,7 @@ class KeypointRMSE(nn.Module):
 
         diff = ((xx - yx) ** 2 + (xy - yy) ** 2) / 2
         loss = diff.mean().sqrt()
+        """
         return loss
 
 
@@ -294,16 +336,26 @@ class TrainInputBean:
         self.best_loss = math.inf
         self.earlystop_cnt = 0
 
-    def save_checkpoint(self, path):
+    def save(self, path):
         torch.save(
             {
                 "model": self.pose_model.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
                 "epoch": self.epoch,
                 "best_loss": self.best_loss,
+                "earlystop_cnt": self.earlystop_cnt,
             },
             path,
         )
+
+    def load(self, path):
+        print("Load pretrained", path)
+        ckpt = torch.load(path)
+        self.pose_model.load_state_dict(ckpt["model"])
+        self.optimizer.load_state_dict(ckpt["optimizer"])
+        self.epoch = ckpt["epoch"]
+        self.best_loss = ckpt["best_loss"]
+        self.earlystop_cnt = ckpt["earlystop_cnt"]
 
 
 def train_loop(B: TrainInputBean, dl: DataLoader):
@@ -365,6 +417,7 @@ for fold in FOLDS:
     학습 준비
     ======================================================================================
     """
+    log.info("Fold", fold)
     train_idx, valid_idx = indices[fold - 1]
     ds_train = KeypointDataset(total_imgs[train_idx], total_keypoints[train_idx], augmentation=True, padding=PADDING)
     ds_valid = KeypointDataset(total_imgs[valid_idx], total_keypoints[valid_idx], augmentation=False, padding=PADDING)
@@ -372,6 +425,7 @@ for fold in FOLDS:
     dl_valid = DataLoader(ds_valid, batch_size=BATCH_SIZE, num_workers=4, shuffle=False)
 
     B = TrainInputBean()
+    B.pose_model.init_weights()
 
     """
     ======================================================================================
@@ -379,18 +433,17 @@ for fold in FOLDS:
     ======================================================================================
     """
 
-    print("Finetune Step 1")
+    log.info("Finetune Step 1")
     B.pose_model.freeze_head()
     for B.epoch in range(B.epoch, 6):
         to = train_loop(B, dl_train)
         vo = valid_loop(B, dl_valid)
 
         log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
-        B.scheduler.step(vo.loss)
 
         if B.best_loss > vo.loss:
             B.best_loss = vo.loss
-            B.save_checkpoint(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
+            B.save(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
 
     """
     ======================================================================================
@@ -398,18 +451,17 @@ for fold in FOLDS:
     ======================================================================================
     """
 
-    print("Finetune Step 2")
+    log.info("Finetune Step 2")
     B.pose_model.freeze_tail()
     for B.epoch in range(B.epoch, 11):
         to = train_loop(B, dl_train)
         vo = valid_loop(B, dl_valid)
 
         log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
-        B.scheduler.step(vo.loss)
 
         if B.best_loss > vo.loss:
             B.best_loss = vo.loss
-            B.save_checkpoint(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
+            B.save(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
 
     """
     ======================================================================================
@@ -417,7 +469,7 @@ for fold in FOLDS:
     ======================================================================================
     """
 
-    print("Finetune Step 3")
+    log.info("Finetune Step 3")
     B.pose_model.unfreeze_all()
     for B.epoch in range(B.epoch, 200):
         to = train_loop(B, dl_train)
@@ -429,7 +481,7 @@ for fold in FOLDS:
         if B.best_loss > vo.loss:
             B.best_loss = vo.loss
             B.earlystop_cnt = 0
-            B.save_checkpoint(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
+            B.save(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
         elif B.earlystop_cnt >= 10:
             log.info(f"Stop training at epoch", B.epoch)
             break
