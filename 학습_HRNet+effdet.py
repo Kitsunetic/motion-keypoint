@@ -131,7 +131,8 @@ class KeypointDataset(Dataset):
         # T.append(A.Resize(512, 1024))
         if augmentation:
             T.append(A.ImageCompression())
-            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, value=0, rotate_limit=0))
+            # T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, value=0))
+            T.append(A.ShiftScaleRotate())
             T.append(utils.HorizontalFlipEx())
             T.append(A.Cutout())
             T_ = []
