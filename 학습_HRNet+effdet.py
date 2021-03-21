@@ -47,21 +47,24 @@ POSE_MODEL = "HRNet-W48"
 RESULT_DIR = Path("results/hrnet+det")
 
 LR = 1e-4  # transfer learning이니깐 좀 작게 주는게 좋을 것 같아서 1e-4
-BATCH_SIZE = 40
+BATCH_SIZE = 10
 START_EPOCH = 1
 SAM = False
-FOLDS = [1, 2, 3, 4, 5]
+FOLD = 1 if len(sys.argv) == 1 else int(sys.argv[1])
 PADDING = 30
 ADD_JOINT_LOSS = False
 
-DEBUG = True
+DEBUG = False
 STEP1_EPOCHS = 10
 STEP2_EPOCHS = 20
 STEP3_EPOCHS = 500
 if DEBUG:
-    STEP1_EPOCHS = 5
-    STEP2_EPOCHS = 10
-    STEP3_EPOCHS = 20
+    STEP1_EPOCHS = 2
+    STEP2_EPOCHS = 5
+    STEP3_EPOCHS = 10
+
+INPUT_WIDTH = 576  # 288
+INPUT_HEIGHT = 768  # 384
 
 n = datetime.now()
 UID = f"{n.year:04d}{n.month:02d}{n.day:02d}-{n.hour:02d}{n.minute:02d}{n.second:02d}"
@@ -78,13 +81,15 @@ log.info("LR:", LR)
 log.info("BATCH_SIZE:", BATCH_SIZE)
 log.info("START_EPOCH:", START_EPOCH)
 log.info("SAM:", SAM)
-log.info("FOLDS:", FOLDS)
+log.info("FOLD:", FOLD)
 log.info("PADDING:", PADDING)
 log.info("ADD_JOINT_LOSS:", ADD_JOINT_LOSS)
 log.info("DEBUG:", DEBUG)
 log.info("STEP1_EPOCHS:", STEP1_EPOCHS)
 log.info("STEP2_EPOCHS:", STEP2_EPOCHS)
 log.info("STEP3_EPOCHS:", STEP3_EPOCHS)
+log.info("INPUT_WIDTH:", INPUT_WIDTH)
+log.info("INPUT_HEIGHT:", INPUT_HEIGHT)
 log.flush()
 
 """
@@ -171,8 +176,8 @@ class KeypointDataset(Dataset):
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
 
         # HRNet의 입력 이미지 크기로 resize
-        ratio = torch.tensor((288 / image.shape[2], 384 / image.shape[1]), dtype=torch.float32)
-        image = F.interpolate(image.unsqueeze(0), (384, 288))[0]
+        ratio = torch.tensor((INPUT_WIDTH / image.shape[2], INPUT_HEIGHT / image.shape[1]), dtype=torch.float32)
+        image = F.interpolate(image.unsqueeze(0), (INPUT_HEIGHT, INPUT_WIDTH))[0]
 
         # bbox만큼 빼줌
         keypoint[:, 0] -= bbox[0]
@@ -189,7 +194,7 @@ class KeypointDataset(Dataset):
         # keypoint를 heatmap으로 변환
         # TODO: 완전히 정답이 아니면 틀린 것과 같은 점수. 좀 부드럽게 만들 수는 없을지?
         # heatmap regression loss중에 soft~~~ 한 이름이 있던거같은데
-        heatmap = utils.keypoints2heatmaps(keypoint, 96, 72)
+        heatmap = utils.keypoints2heatmaps(keypoint, INPUT_HEIGHT // 4, INPUT_WIDTH // 4)
 
         return image, keypoint, heatmap, ratio
 
@@ -424,79 +429,81 @@ def valid_loop(B: TrainInputBean, dl: DataLoader):
     return O.freeze()
 
 
+"""
+======================================================================================
+학습 준비
+======================================================================================
+"""
+
 kf = KFold(n_splits=5, shuffle=True, random_state=SEED)
-for fold, (train_idx, valid_idx) in zip(FOLDS, kf.split(total_imgs)):
-    """
-    ======================================================================================
-    학습 준비
-    ======================================================================================
-    """
-    log.info("Fold", fold)
-    ds_train = KeypointDataset(total_imgs[train_idx], total_keypoints[train_idx], augmentation=True, padding=PADDING)
-    ds_valid = KeypointDataset(total_imgs[valid_idx], total_keypoints[valid_idx], augmentation=False, padding=PADDING)
-    dl_train = DataLoader(ds_train, batch_size=BATCH_SIZE, num_workers=4, shuffle=True)
-    dl_valid = DataLoader(ds_valid, batch_size=BATCH_SIZE, num_workers=4, shuffle=False)
+indices = list(kf.split(total_imgs))
 
-    B = TrainInputBean()
-    # TODO: 왜 모델이랑 optimizer가 초기화가 안되지?
+train_idx, valid_idx = indices[FOLD - 1]
+ds_train = KeypointDataset(total_imgs[train_idx], total_keypoints[train_idx], augmentation=True, padding=PADDING)
+ds_valid = KeypointDataset(total_imgs[valid_idx], total_keypoints[valid_idx], augmentation=False, padding=PADDING)
+dl_train = DataLoader(ds_train, batch_size=BATCH_SIZE, num_workers=4, shuffle=True)
+dl_valid = DataLoader(ds_valid, batch_size=BATCH_SIZE, num_workers=4, shuffle=False)
 
-    """
-    ======================================================================================
-    학습 - Finetune Step 1
-    ======================================================================================
-    """
+B = TrainInputBean()
+# TODO: 왜 모델이랑 optimizer가 초기화가 안되지?
 
-    log.info("Finetune Step 1")
-    B.pose_model.freeze_head()
-    for B.epoch in range(B.epoch, STEP1_EPOCHS + 1):
-        to = train_loop(B, dl_train)
-        vo = valid_loop(B, dl_valid)
+"""
+======================================================================================
+학습 - Finetune Step 1
+======================================================================================
+"""
 
-        log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
+log.info("Finetune Step 1")
+B.pose_model.freeze_head()
+for B.epoch in range(B.epoch, STEP1_EPOCHS + 1):
+    to = train_loop(B, dl_train)
+    vo = valid_loop(B, dl_valid)
 
-        if B.best_loss > vo.loss:
-            B.best_loss = vo.loss
-            B.save(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
+    log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
 
-    """
-    ======================================================================================
-    학습 - Finetune Step 2
-    ======================================================================================
-    """
+    if B.best_loss > vo.loss:
+        B.best_loss = vo.loss
+        B.save(RESULT_DIR / f"ckpt-{UID}_{FOLD}.pth")
 
-    log.info("Finetune Step 2")
-    B.pose_model.freeze_tail()
-    for B.epoch in range(B.epoch, STEP2_EPOCHS + 1):
-        to = train_loop(B, dl_train)
-        vo = valid_loop(B, dl_valid)
+"""
+======================================================================================
+학습 - Finetune Step 2
+======================================================================================
+"""
 
-        log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
+log.info("Finetune Step 2")
+B.pose_model.freeze_tail()
+for B.epoch in range(B.epoch, STEP2_EPOCHS + 1):
+    to = train_loop(B, dl_train)
+    vo = valid_loop(B, dl_valid)
 
-        if B.best_loss > vo.loss:
-            B.best_loss = vo.loss
-            B.save(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
+    log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
 
-    """
-    ======================================================================================
-    학습 - Finetune Step 3
-    ======================================================================================
-    """
+    if B.best_loss > vo.loss:
+        B.best_loss = vo.loss
+        B.save(RESULT_DIR / f"ckpt-{UID}_{FOLD}.pth")
 
-    log.info("Finetune Step 3")
-    B.pose_model.unfreeze_all()
-    for B.epoch in range(B.epoch, STEP3_EPOCHS + 1):
-        to = train_loop(B, dl_train)
-        vo = valid_loop(B, dl_valid)
+"""
+======================================================================================
+학습 - Finetune Step 3
+======================================================================================
+"""
 
-        log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
-        B.scheduler.step(vo.loss)
+log.info("Finetune Step 3")
+B.pose_model.unfreeze_all()
+for B.epoch in range(B.epoch, STEP3_EPOCHS + 1):
+    to = train_loop(B, dl_train)
+    vo = valid_loop(B, dl_valid)
 
-        if B.best_loss > vo.loss:
-            B.best_loss = vo.loss
-            B.earlystop_cnt = 0
-            B.save(RESULT_DIR / f"ckpt-{UID}_{fold}.pth")
-        elif B.earlystop_cnt >= 10:
-            log.info(f"Stop training at epoch", B.epoch)
-            break
-        else:
-            B.earlystop_cnt += 1
+    log.info(f"Epoch: {B.epoch:03d}, loss: {to.loss:.6f};{vo.loss:.6f}, rmse {to.rmse:.6f};{vo.rmse:.6f}")
+    B.scheduler.step(vo.loss)
+
+    if B.best_loss > vo.loss:
+        B.best_loss = vo.loss
+        B.earlystop_cnt = 0
+        B.save(RESULT_DIR / f"ckpt-{UID}_{FOLD}.pth")
+    elif B.earlystop_cnt >= 10:
+        log.info(f"Stop training at epoch", B.epoch)
+        break
+    else:
+        B.earlystop_cnt += 1
