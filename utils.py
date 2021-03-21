@@ -57,10 +57,8 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.cnt = 0
-        self.losses = []
 
     def update(self, val, n=1):
-        self.losses.append(val)
         if n > 0:
             self.sum += val * n
             self.cnt += n

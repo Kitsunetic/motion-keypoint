@@ -323,7 +323,9 @@ class TrainOutputBean:
 
 
 class TrainInputBean:
-    def __init__(self):
+    def __init__(self, evaluation_mode=False):
+        self.evaluation_mode = evaluation_mode
+
         # HRNet 생성
         if POSE_MODEL == "HRNet-W32":
             width = 32
@@ -346,16 +348,18 @@ class TrainInputBean:
         # self.criterion = JointMSELoss().cuda()
         self.criterion = KeypointLoss().cuda()
         self.criterion_rmse = KeypointRMSE().cuda()
-        if SAM:
-            self.optimizer = utils.SAM(self.pose_model.parameters(), optim.AdamW, lr=LR)
-        else:
-            self.optimizer = optim.AdamW(self.pose_model.parameters(), lr=LR)
-        self.scheduler = ReduceLROnPlateau(self.optimizer, factor=0.5, patience=4, verbose=True)
 
-        # 기타
-        self.epoch = START_EPOCH
-        self.best_loss = math.inf
-        self.earlystop_cnt = 0
+        if not self.evaluation_mode:
+            if SAM:
+                self.optimizer = utils.SAM(self.pose_model.parameters(), optim.AdamW, lr=LR)
+            else:
+                self.optimizer = optim.AdamW(self.pose_model.parameters(), lr=LR)
+            self.scheduler = ReduceLROnPlateau(self.optimizer, factor=0.5, patience=4, verbose=True)
+
+            # 기타
+            self.epoch = START_EPOCH
+            self.best_loss = math.inf
+            self.earlystop_cnt = 0
 
     def save(self, path):
         torch.save(
@@ -373,10 +377,12 @@ class TrainInputBean:
         print("Load pretrained", path)
         ckpt = torch.load(path)
         self.pose_model.load_state_dict(ckpt["model"])
-        self.optimizer.load_state_dict(ckpt["optimizer"])
-        self.epoch = ckpt["epoch"]
-        self.best_loss = ckpt["best_loss"]
-        self.earlystop_cnt = ckpt["earlystop_cnt"]
+
+        if not self.evaluation_mode:
+            self.optimizer.load_state_dict(ckpt["optimizer"])
+            self.epoch = ckpt["epoch"]
+            self.best_loss = ckpt["best_loss"]
+            self.earlystop_cnt = ckpt["earlystop_cnt"]
 
 
 def train_loop(B: TrainInputBean, dl: DataLoader):
