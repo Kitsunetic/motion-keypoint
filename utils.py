@@ -486,3 +486,18 @@ def keypoint2box(keypoint, padding=0):
             keypoint[:, 1].max() + padding,
         ]
     )
+
+
+def denormalize(
+    x: torch.Tensor,
+    mean=torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32),
+    std=torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32),
+):
+    if x.dim() == 4:
+        mean = mean.view(1, 3, 1, 1).to(x.device)
+        std = std.view(1, 3, 1, 1).to(x.device)
+    elif x.dim() == 3:
+        mean = mean.view(3, 1, 1).to(x.device)
+        std = std.view(3, 1, 1).to(x.device)
+
+    return x * std + mean

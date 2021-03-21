@@ -44,16 +44,24 @@ from error_list import error_list
 """
 
 POSE_MODEL = "HRNet-W48"
-DET_PRETRAINED = ""
 RESULT_DIR = Path("results/hrnet+det")
 
 LR = 1e-4  # transfer learning이니깐 좀 작게 주는게 좋을 것 같아서 1e-4
 BATCH_SIZE = 40
 START_EPOCH = 1
-SAM = True
+SAM = False
 FOLDS = [1, 2, 3, 4, 5]
 PADDING = 30
-ADD_JOINT_LOSS = True
+ADD_JOINT_LOSS = False
+
+DEBUG = True
+STEP1_EPOCHS = 10
+STEP2_EPOCHS = 20
+STEP3_EPOCHS = 500
+if DEBUG:
+    STEP1_EPOCHS = 5
+    STEP2_EPOCHS = 10
+    STEP3_EPOCHS = 20
 
 n = datetime.now()
 UID = f"{n.year:04d}{n.month:02d}{n.day:02d}-{n.hour:02d}{n.minute:02d}{n.second:02d}"
@@ -64,7 +72,6 @@ RESULT_DIR.mkdir(parents=True, exist_ok=True)
 log = utils.CustomLogger(RESULT_DIR / f"log_{UID}.log", "a")
 log.info("학습 시작")
 log.info("POSE_MODEL:", POSE_MODEL)
-log.info("DET_PRETRAINED:", DET_PRETRAINED)
 log.info("UID:", UID)
 log.info("SEED:", SEED)
 log.info("LR:", LR)
@@ -74,6 +81,10 @@ log.info("SAM:", SAM)
 log.info("FOLDS:", FOLDS)
 log.info("PADDING:", PADDING)
 log.info("ADD_JOINT_LOSS:", ADD_JOINT_LOSS)
+log.info("DEBUG:", DEBUG)
+log.info("STEP1_EPOCHS:", STEP1_EPOCHS)
+log.info("STEP2_EPOCHS:", STEP2_EPOCHS)
+log.info("STEP3_EPOCHS:", STEP3_EPOCHS)
 log.flush()
 
 """
@@ -97,6 +108,10 @@ for i in range(len(total_imgs)):
         total_keypoints_.append(total_keypoints[i])
 total_imgs = np.array(total_imgs_)
 total_keypoints = np.array(total_keypoints_)
+
+if DEBUG:
+    total_imgs = total_imgs[:500]
+    total_keypoints = total_keypoints[:500]
 
 
 class KeypointDataset(Dataset):
@@ -265,13 +280,14 @@ class KeypointLoss(nn.Module):
 class KeypointRMSE(nn.Module):
     @torch.no_grad()
     def forward(self, pred_heatmaps: torch.Tensor, real_heatmaps: torch.Tensor, ratios: torch.Tensor):
-        B, C, H, W = pred_heatmaps.shape
+        W = pred_heatmaps.size(3)
         pred_positions = pred_heatmaps.flatten(2).argmax(2)
         real_positions = real_heatmaps.flatten(2).argmax(2)
-        pred_positions = torch.stack((pred_positions // W, pred_positions % W), 2)
-        real_positions = torch.stack((real_positions // W, real_positions % W), 2)
-        pred_positions *= 4 / ratios
-        real_positions *= 4 / ratios
+        pred_positions = torch.stack((pred_positions // W, pred_positions % W), 2).type(torch.float32)
+        real_positions = torch.stack((real_positions // W, real_positions % W), 2).type(torch.float32)
+        # print(pred_positions.shape, real_positions.shape, ratios.shape)
+        pred_positions *= 4 / ratios.unsqueeze(1)  # position: (B, 24, 2), ratio: (B, 2)
+        real_positions *= 4 / ratios.unsqueeze(1)
         loss = (pred_positions - real_positions).square().mean().sqrt()
 
         """
@@ -409,23 +425,20 @@ def valid_loop(B: TrainInputBean, dl: DataLoader):
 
 
 kf = KFold(n_splits=5, shuffle=True, random_state=SEED)
-indices = list(kf.split(total_imgs))
-
-for fold in FOLDS:
+for fold, (train_idx, valid_idx) in zip(FOLDS, kf.split(total_imgs)):
     """
     ======================================================================================
     학습 준비
     ======================================================================================
     """
     log.info("Fold", fold)
-    train_idx, valid_idx = indices[fold - 1]
     ds_train = KeypointDataset(total_imgs[train_idx], total_keypoints[train_idx], augmentation=True, padding=PADDING)
     ds_valid = KeypointDataset(total_imgs[valid_idx], total_keypoints[valid_idx], augmentation=False, padding=PADDING)
     dl_train = DataLoader(ds_train, batch_size=BATCH_SIZE, num_workers=4, shuffle=True)
     dl_valid = DataLoader(ds_valid, batch_size=BATCH_SIZE, num_workers=4, shuffle=False)
 
     B = TrainInputBean()
-    B.pose_model.init_weights()
+    # TODO: 왜 모델이랑 optimizer가 초기화가 안되지?
 
     """
     ======================================================================================
@@ -435,7 +448,7 @@ for fold in FOLDS:
 
     log.info("Finetune Step 1")
     B.pose_model.freeze_head()
-    for B.epoch in range(B.epoch, 6):
+    for B.epoch in range(B.epoch, STEP1_EPOCHS + 1):
         to = train_loop(B, dl_train)
         vo = valid_loop(B, dl_valid)
 
@@ -453,7 +466,7 @@ for fold in FOLDS:
 
     log.info("Finetune Step 2")
     B.pose_model.freeze_tail()
-    for B.epoch in range(B.epoch, 11):
+    for B.epoch in range(B.epoch, STEP2_EPOCHS + 1):
         to = train_loop(B, dl_train)
         vo = valid_loop(B, dl_valid)
 
@@ -471,7 +484,7 @@ for fold in FOLDS:
 
     log.info("Finetune Step 3")
     B.pose_model.unfreeze_all()
-    for B.epoch in range(B.epoch, 200):
+    for B.epoch in range(B.epoch, STEP3_EPOCHS + 1):
         to = train_loop(B, dl_train)
         vo = valid_loop(B, dl_valid)
 
