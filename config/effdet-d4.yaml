@@ -1,0 +1,21 @@
+pose_model: efficientdet-d4
+result_dir: results/effdet-train
+data_dir: data/ori
+
+lr: 0.0001
+batch_size: 10
+num_cpus: 10
+start_epoch: 1
+final_epoch: 200
+SAM: false
+padding: 20
+fold: 1
+
+debug: false
+
+uid: efficientdet-d4
+seed: 20210309
+inference: false
+
+input_width: 1024
+input_height: 512
