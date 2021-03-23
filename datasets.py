@@ -1,7 +1,8 @@
-import albumentations as A
 import json
-from sklearn.model_selection import StratifiedKFold
+from copy import deepcopy
 from pathlib import Path
+
+import albumentations as A
 import cv2
 import imageio
 import numpy as np
@@ -10,12 +11,44 @@ import torch
 import torch.nn.functional as F
 from albumentations.pytorch import ToTensorV2
 from PIL import Image
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, StratifiedKFold
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
 import utils
 from error_list import error_list
+
+
+class HorizontalFlipEx(A.HorizontalFlip):
+    swap_columns = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (18, 19), (22, 23)]
+
+    def apply_to_keypoints(self, keypoints, **params):
+        keypoints = super().apply_to_keypoints(keypoints, **params)
+
+        # left/right 키포인트들은 서로 swap해주기
+        for a, b in self.swap_columns:
+            temp1 = deepcopy(keypoints[a])
+            temp2 = deepcopy(keypoints[b])
+            keypoints[a] = temp2
+            keypoints[b] = temp1
+
+        return keypoints
+
+
+class VerticalFlipEx(A.VerticalFlip):
+    swap_columns = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (18, 19), (22, 23)]
+
+    def apply_to_keypoints(self, keypoints, **params):
+        keypoints = super().apply_to_keypoints(keypoints, **params)
+
+        # left/right 키포인트들은 서로 swap해주기
+        for a, b in self.swap_columns:
+            temp1 = deepcopy(keypoints[a])
+            temp2 = deepcopy(keypoints[b])
+            keypoints[a] = temp2
+            keypoints[b] = temp1
+
+        return keypoints
 
 
 class KeypointDataset(Dataset):
@@ -31,8 +64,9 @@ class KeypointDataset(Dataset):
         # T.append(A.Resize(512, 1024))
         if augmentation:
             T.append(A.ImageCompression())
-            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, value=0, rotate_limit=0))
-            T.append(utils.HorizontalFlipEx())
+            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
+            T.append(HorizontalFlipEx())
+            T.append(VerticalFlipEx())
             T.append(A.RandomRotate90())
             T.append(A.IAASharpen())  # 이거 뭔지?
             T.append(A.Cutout())
@@ -113,7 +147,6 @@ class TestKeypointDataset(Dataset):
         T = []
         if augmentation:
             T.append(A.ImageCompression())
-            T.append(A.ShiftScaleRotate())
             # T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, value=0))
             # T.append(utils.HorizontalFlipEx())
             # T.append(A.RandomRotate90())

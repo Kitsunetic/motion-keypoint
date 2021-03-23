@@ -338,14 +338,27 @@ def draw_keypoints_show(image: np.ndarray, keypoints: np.ndarray):
     plt.show()
 
 
+@torch.no_grad()
 def heatmaps2keypoints(p: torch.Tensor):
-    W = p.size(2)
-    pos = torch.argmax(p.flatten(1), 1)
-    y = pos // W
-    x = pos % W
-    return torch.stack([x, y], 1)
+    if p.dim() == 3:
+        W = p.size(2)
+        pos = torch.argmax(p.flatten(1), 1)
+        y = pos // W
+        x = pos % W
+        keypoint = torch.stack([x, y], 1)
+    elif p.dim() == 4:
+        W = p.size(3)
+        pos = torch.argmax(p.flatten(2), 2)
+        y = pos // W
+        x = pos % W
+        keypoint = torch.stack([x, y], 2)
+    else:
+        raise NotImplementedError(f"Expected input tensor dimention 3 or 4, but {p.shape}")
+
+    return keypoint
 
 
+@torch.no_grad()
 def keypoints2heatmaps(k: torch.Tensor, h=768 // 4, w=576 // 4):
     k = k.type(torch.int64)
     c = torch.zeros(k.size(0), h, w, dtype=torch.float32)
@@ -457,22 +470,6 @@ def imshow_horizon(*ims, figsize=(12, 6)):
         plt.imshow(im)
     plt.tight_layout()
     plt.show()
-
-
-class HorizontalFlipEx(A.HorizontalFlip):
-    swap_columns = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (18, 19), (22, 23)]
-
-    def apply_to_keypoints(self, keypoints, **params):
-        keypoints = super().apply_to_keypoints(keypoints, **params)
-
-        # left/right 키포인트들은 서로 swap해주기
-        for a, b in self.swap_columns:
-            temp1 = deepcopy(keypoints[a])
-            temp2 = deepcopy(keypoints[b])
-            keypoints[a] = temp2
-            keypoints[b] = temp1
-
-        return keypoints
 
 
 def keypoint2box(keypoint, padding=0):
