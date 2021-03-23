@@ -21,4 +21,4 @@ input_height: 768
 
 uid: HRNet_W48
 seed: 20210309
-inference: false
+inference: true

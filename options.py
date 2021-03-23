@@ -20,7 +20,10 @@ def load_config(config_file):
         config.step2_epoch = 4
         config.step3_epoch = 10
 
-    log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
+    if config.inference:
+        log = utils.CustomLogger(config.result_dir / f"{config.uid}-inference.log", "a")
+    else:
+        log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
     log.file.write("\r\n")
     log.info("학습 시작")
     for key, value in config.items():

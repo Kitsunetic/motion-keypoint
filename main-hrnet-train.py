@@ -65,6 +65,10 @@ class PoseTrainer:
         # Dataset
         self.dl_train, self.dl_valid, self.dl_test = get_pose_datasets(self.C, self.fold)
 
+        # Load Checkpoint
+        if checkpoint is not None:
+            self.load(checkpoint)
+
     def save(self, path):
         torch.save(
             {
