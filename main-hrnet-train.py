@@ -21,8 +21,7 @@ from tqdm import tqdm
 import networks
 import options
 import utils
-from datasets import KeypointDataset, TestKeypointDataset, get_pose_datasets
-from error_list import error_list
+from datasets import get_pose_datasets
 from losses import JointMSELoss, KeypointLoss, KeypointRMSE
 
 
@@ -109,10 +108,10 @@ class PoseTrainer:
             desc=f"Train {self.epoch:03d}",
         ) as t:
             for files, imgs, keypoints, target_heatmaps, ratios in self.dl_train:
-                imgs_, target_heatmaps_ = imgs.cuda(), target_heatmaps.cuda()
+                imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
                 pred_heatmaps_ = self.pose_model(imgs_)
                 loss = self.criterion(pred_heatmaps_, target_heatmaps_)
-                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda())
+                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda(non_blocking=True))
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -123,8 +122,8 @@ class PoseTrainer:
                 else:
                     self.optimizer.step()
 
-                meanloss.update(loss.item())
-                meanrmse.update(rmse.item())
+                meanloss.update(loss.item(), len(files))
+                meanrmse.update(rmse.item(), len(files))
                 t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
                 t.update(len(imgs))
 
@@ -143,13 +142,13 @@ class PoseTrainer:
             desc=f"Valid {self.epoch:03d}",
         ) as t:
             for files, imgs, keypoints, target_heatmaps, ratios in self.dl_valid:
-                imgs_, target_heatmaps_ = imgs.cuda(), target_heatmaps.cuda()
+                imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
                 pred_heatmaps_ = self.pose_model(imgs_)
                 loss = self.criterion(pred_heatmaps_, target_heatmaps_)
-                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda())
+                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda(non_blocking=True))
 
-                meanloss.update(loss.item())
-                meanrmse.update(rmse.item())
+                meanloss.update(loss.item(), len(files))
+                meanrmse.update(rmse.item(), len(files))
                 t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
                 t.update(len(imgs))
 
@@ -239,10 +238,10 @@ class PoseTrainer:
         meanloss, meanrmse = utils.AverageMeter(), utils.AverageMeter()
         with tqdm(total=len(dl.dataset), ncols=100, file=sys.stdout) as t:
             for files, imgs, keypoints, target_heatmaps, ratios in dl:
-                imgs_, target_heatmaps_ = imgs.cuda(), target_heatmaps.cuda()
+                imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
                 pred_heatmaps_ = self.pose_model(imgs_)
                 loss = self.criterion(pred_heatmaps_, target_heatmaps_)
-                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda())
+                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda(non_blocking=True))
 
                 if file_out_dir is not None:
                     file_out_dir = Path(file_out_dir)
@@ -283,6 +282,7 @@ def main():
 
     config = options.load_config(args.config_file)
     for fold, checkpoint in zip(config.folds, config.checkpoints):
+        config.log.file.write("\r\n")
         config.log.info("Fold", fold)
         trainer = PoseTrainer(config, fold, checkpoint)
         trainer.fit()

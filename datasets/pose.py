@@ -9,55 +9,23 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F
+import utils
 from albumentations.pytorch import ToTensorV2
+from error_list import error_list
 from PIL import Image
 from sklearn.model_selection import KFold, StratifiedKFold
 from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
-import utils
-from error_list import error_list
-
-
-class HorizontalFlipEx(A.HorizontalFlip):
-    swap_columns = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (18, 19), (22, 23)]
-
-    def apply_to_keypoints(self, keypoints, **params):
-        keypoints = super().apply_to_keypoints(keypoints, **params)
-
-        # left/right 키포인트들은 서로 swap해주기
-        for a, b in self.swap_columns:
-            temp1 = deepcopy(keypoints[a])
-            temp2 = deepcopy(keypoints[b])
-            keypoints[a] = temp2
-            keypoints[b] = temp1
-
-        return keypoints
-
-
-class VerticalFlipEx(A.VerticalFlip):
-    swap_columns = [(1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (18, 19), (22, 23)]
-
-    def apply_to_keypoints(self, keypoints, **params):
-        keypoints = super().apply_to_keypoints(keypoints, **params)
-
-        # left/right 키포인트들은 서로 swap해주기
-        for a, b in self.swap_columns:
-            temp1 = deepcopy(keypoints[a])
-            temp2 = deepcopy(keypoints[b])
-            keypoints[a] = temp2
-            keypoints[b] = temp1
-
-        return keypoints
+from .common import HorizontalFlipEx, VerticalFlipEx
 
 
 class KeypointDataset(Dataset):
-    def __init__(self, config, files, keypoints, augmentation, padding):
+    def __init__(self, config, files, keypoints, augmentation):
         super().__init__()
         self.config = config
         self.files = files
         self.keypoints = keypoints
-        self.padding = padding
 
         T = []
         # T.append(A.Crop(0, 28, 1920, 1080 - 28))  # 1920x1080 --> 1920x1024
@@ -96,7 +64,7 @@ class KeypointDataset(Dataset):
         image = imageio.imread(file)
 
         keypoint = self.keypoints[idx]
-        box = utils.keypoint2box(keypoint, self.padding)
+        box = utils.keypoint2box(keypoint, self.config.padding)
         box = np.expand_dims(box, 0)
         labels = np.array([0], dtype=np.int64)
         a = self.transform(image=image, labels=labels, bboxes=box, keypoints=keypoint)
@@ -109,7 +77,9 @@ class KeypointDataset(Dataset):
         return file, image, keypoint, heatmap, ratio
 
     def _resize_image(self, image, bbox, keypoint):
-        # efficientdet에서 찾은 범위만큼 이미지를 자름
+        """
+        bbox크기만큼 이미지를 자르고, keypoint에 offset/ratio를 준다.
+        """
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
 
         # HRNet의 입력 이미지 크기로 resize
@@ -219,17 +189,27 @@ def get_pose_datasets(config, fold):
         total_imgs[train_idx],
         total_keypoints[train_idx],
         augmentation=True,
-        padding=config.padding,
     )
     ds_valid = KeypointDataset(
         config,
         total_imgs[valid_idx],
         total_keypoints[valid_idx],
         augmentation=False,
-        padding=config.padding,
     )
-    dl_train = DataLoader(ds_train, batch_size=config.batch_size, shuffle=True, pin_memory=True)
-    dl_valid = DataLoader(ds_valid, batch_size=config.batch_size, shuffle=False, pin_memory=True)
+    dl_train = DataLoader(
+        ds_train,
+        batch_size=config.batch_size,
+        num_workers=config.num_cpus,
+        shuffle=True,
+        pin_memory=True,
+    )
+    dl_valid = DataLoader(
+        ds_valid,
+        batch_size=config.batch_size,
+        num_workers=config.num_cpus,
+        shuffle=False,
+        pin_memory=True,
+    )
 
     # 테스트 데이터셋
     test_files = sorted(list((config.data_dir / "test_imgs").glob("*.jpg")))
@@ -243,6 +223,12 @@ def get_pose_datasets(config, fold):
         ratios,
         augmentation=False,
     )
-    dl_test = DataLoader(ds_test, batch_size=config.batch_size, shuffle=False, pin_memory=True)
+    dl_test = DataLoader(
+        ds_test,
+        batch_size=config.batch_size,
+        num_workers=config.num_cpus,
+        shuffle=False,
+        pin_memory=True,
+    )
 
     return dl_train, dl_valid, dl_test
