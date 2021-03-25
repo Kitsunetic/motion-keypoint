@@ -32,7 +32,7 @@ class KeypointDataset(Dataset):
         # T.append(A.Resize(512, 1024))
         if augmentation:
             T.append(A.ImageCompression())
-            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
+            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, rotate_limit=30))
             T.append(HorizontalFlipEx())
             T.append(VerticalFlipEx())
             T.append(A.RandomRotate90())
@@ -60,21 +60,25 @@ class KeypointDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-        file = str(self.files[idx])
-        image = imageio.imread(file)
+        while True:
+            try:
+                file = str(self.files[idx])
+                image = imageio.imread(file)
 
-        keypoint = self.keypoints[idx]
-        box = utils.keypoint2box(keypoint, self.config.padding)
-        box = np.expand_dims(box, 0)
-        labels = np.array([0], dtype=np.int64)
-        a = self.transform(image=image, labels=labels, bboxes=box, keypoints=keypoint)
+                keypoint = self.keypoints[idx]
+                box = utils.keypoint2box(keypoint, self.config.padding)
+                box = np.expand_dims(box, 0)
+                labels = np.array([0], dtype=np.int64)
+                a = self.transform(image=image, labels=labels, bboxes=box, keypoints=keypoint)
 
-        image = a["image"]
-        bbox = list(map(int, a["bboxes"][0]))
-        keypoint = torch.tensor(a["keypoints"], dtype=torch.float32)
-        image, keypoint, heatmap, ratio = self._resize_image(image, bbox, keypoint)
+                image = a["image"]
+                bbox = list(map(int, a["bboxes"][0]))
+                keypoint = torch.tensor(a["keypoints"], dtype=torch.float32)
+                image, keypoint, heatmap, ratio = self._resize_image(image, bbox, keypoint)
 
-        return file, image, keypoint, heatmap, ratio
+                return file, image, keypoint, heatmap, ratio
+            except IndexError:
+                pass
 
     def _resize_image(self, image, bbox, keypoint):
         """

@@ -1,5 +1,5 @@
 pose_model: HRNet-W48
-uid: HRNet_W48
+uid: HRNet_W48_SAM
 result_dir: results/hrnet-train
 data_dir: data/ori
 
@@ -7,18 +7,10 @@ lr: 0.0001
 batch_size: 10
 num_cpus: 10
 start_epoch: 1
-SAM: false
+SAM: true
 folds: 
-  - 1
-  - 2
   - 3
-  - 4
-  - 5
 checkpoints: 
-  - results/hrnet-train/ckpt-HRNet_W48_1.pth
-  - null
-  - null
-  - null
   - null
 padding: 20
 add_joint_loss: false
