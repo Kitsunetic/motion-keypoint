@@ -21,9 +21,7 @@ from tqdm import tqdm
 import networks
 import options
 import utils
-from datasets import KeypointDataset, TestKeypointDataset, get_pose_datasets
-from error_list import error_list
-from losses import JointMSELoss, KeypointLoss, KeypointRMSE
+from datasets import get_det_dataset
 
 
 class DetTrainer:
@@ -31,7 +29,7 @@ class DetTrainer:
         self.C = config
         self.fold = fold
 
-        self.det_model = networks.EfficientDet(self.C.det_mdel)
+        self.det_model = networks.EfficientDet(self.C.det_model, pretrained=True)
         self.det_model.cuda()
 
         # Optimizer
@@ -48,7 +46,7 @@ class DetTrainer:
         self.earlystop_cnt = 0
 
         # Dataset
-        self.dl_train, self.dl_valid, self.dl_test = get_pose_datasets(self.C, self.fold)
+        self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(self.C, self.fold)
 
         # Load Checkpoint
         if checkpoint is not None:
@@ -81,7 +79,7 @@ class DetTrainer:
     def train_loop(self):
         self.det_model.train()
 
-        meanloss, meanrmse = utils.AverageMeter(), utils.AverageMeter()
+        meanloss = utils.AverageMeter()
         with tqdm(
             total=len(self.dl_train.dataset),
             ncols=100,
@@ -89,33 +87,30 @@ class DetTrainer:
             file=sys.stdout,
             desc=f"Train {self.epoch:03d}",
         ) as t:
-            for files, imgs, keypoints, target_heatmaps, ratios in self.dl_train:
-                imgs_, target_heatmaps_ = imgs.cuda(), target_heatmaps.cuda()
-                pred_heatmaps_ = self.det_model(imgs_)
-                loss = self.criterion(pred_heatmaps_, target_heatmaps_)
-                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda())
+            for files, imgs, annots in self.dl_train:
+                imgs_, annots_ = imgs.cuda(non_blocking=True), annots.cuda(non_blocking=True)
+                loss = self.det_model(imgs_, annots_)
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 if isinstance(self.optimizer, utils.SAM):
                     self.optimizer.first_step()
-                    self.criterion(self.det_model(imgs_), target_heatmaps_).backward()
+                    self.det_model(imgs_, annots_).backward()
                     self.optimizer.second_step()
                 else:
                     self.optimizer.step()
 
                 meanloss.update(loss.item())
-                meanrmse.update(rmse.item())
-                t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
+                t.set_postfix_str(f"loss: {loss.item():.6f}", refresh=False)
                 t.update(len(imgs))
 
-        return meanloss(), meanrmse()
+        return meanloss()
 
     @torch.no_grad()
     def valid_loop(self):
         self.det_model.eval()
 
-        meanloss, meanrmse = utils.AverageMeter(), utils.AverageMeter()
+        meanloss = utils.AverageMeter()
         with tqdm(
             total=len(self.dl_valid.dataset),
             ncols=100,
@@ -123,66 +118,24 @@ class DetTrainer:
             file=sys.stdout,
             desc=f"Valid {self.epoch:03d}",
         ) as t:
-            for files, imgs, keypoints, target_heatmaps, ratios in self.dl_valid:
-                imgs_, target_heatmaps_ = imgs.cuda(), target_heatmaps.cuda()
-                pred_heatmaps_ = self.det_model(imgs_)
-                loss = self.criterion(pred_heatmaps_, target_heatmaps_)
-                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda())
+            for files, imgs, annots in self.dl_valid:
+                imgs_, annots_ = imgs.cuda(non_blocking=True), annots.cuda(non_blocking=True)
+                loss = self.det_model(imgs_, annots_)
 
                 meanloss.update(loss.item())
-                meanrmse.update(rmse.item())
-                t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
+                t.set_postfix_str(f"loss: {loss.item():.6f}", refresh=False)
                 t.update(len(imgs))
 
-        return meanloss(), meanrmse()
+        return meanloss()
 
-    def finetune_step1(self):
-        self.C.log.info("Finetune Step 1")
-        self.det_model.freeze_head()
-        for self.epoch in range(self.epoch, self.C.step1_epoch + 1):
-            tloss, trmse = self.train_loop()
-            vloss, vrmse = self.valid_loop()
+    def fit(self):
+        for self.epoch in range(self.epoch, self.C.final_epoch + 1):
+            tloss = self.train_loop()
+            vloss = self.valid_loop()
 
             self.C.log.info(
                 f"Epoch: {self.epoch:03d},",
                 f"loss: {tloss:.6f};{vloss:.6f},",
-                f"rmse {trmse:.6f};{vrmse:.6f}",
-            )
-            self.C.log.flush()
-
-            if self.best_loss > vloss:
-                self.best_loss = vloss
-                self.save(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
-
-    def finetune_step2(self):
-        self.C.log.info("Finetune Step 2")
-        self.det_model.freeze_tail()
-        for self.epoch in range(self.epoch, self.C.step2_epoch + 1):
-            tloss, trmse = self.train_loop()
-            vloss, vrmse = self.valid_loop()
-
-            self.C.log.info(
-                f"Epoch: {self.epoch:03d},",
-                f"loss: {tloss:.6f};{vloss:.6f},",
-                f"rmse {trmse:.6f};{vrmse:.6f}",
-            )
-            self.C.log.flush()
-
-            if self.best_loss > vloss:
-                self.best_loss = vloss
-                self.save(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
-
-    def finetune_step3(self):
-        self.C.log.info("Finetune Step 3")
-        self.det_model.unfreeze_all()
-        for self.epoch in range(self.epoch, self.C.step3_epoch + 1):
-            tloss, trmse = self.train_loop()
-            vloss, vrmse = self.valid_loop()
-
-            self.C.log.info(
-                f"Epoch: {self.epoch:03d},",
-                f"loss: {tloss:.6f};{vloss:.6f},",
-                f"rmse {trmse:.6f};{vrmse:.6f}",
             )
             self.C.log.flush()
             self.scheduler.step(vloss)
@@ -197,20 +150,6 @@ class DetTrainer:
             else:
                 self.earlystop_cnt += 1
 
-    def fit(self):
-        self.finetune_step1()
-        self.epoch += 1
-        # torch.cuda.empty_cache()
-        self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
-
-        self.finetune_step2()
-        self.epoch += 1
-        # torch.cuda.empty_cache()
-        self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
-
-        self.finetune_step3()
-        self.epoch += 1
-        # torch.cuda.empty_cache()
         self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
 
     @torch.no_grad()
@@ -263,14 +202,11 @@ def main():
     args = args.parse_args(sys.argv[1:])
 
     config = options.load_config(args.config_file)
-    for fold, checkpoint in zip(config.folds, config.checkpoints):
-        config.log.file.write("\r\n")
-        config.log.info("Fold", fold)
-        trainer = PoseTrainer(config, fold, checkpoint)
-        trainer.fit()
+    trainer = DetTrainer(config, 1)
+    trainer.fit()
 
-        # validation exmaple 이미지 저장
-        trainer.evaluate(trainer.dl_valid, config.result_dir / "example" / f"valid_{fold}")
+    # validation exmaple 이미지 저장
+    trainer.evaluate(trainer.dl_valid, config.result_dir / "example" / f"valid")
 
 
 if __name__ == "__main__":

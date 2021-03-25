@@ -35,7 +35,7 @@ class DetDataset(Dataset):
             T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
             T.append(HorizontalFlipEx())
             T.append(VerticalFlipEx())
-            T.append(A.RandomRotate90())
+            # T.append(A.RandomRotate90())
             T.append(A.IAASharpen())  # 이거 뭔지?
             T.append(A.Cutout())
             T_ = []
@@ -70,13 +70,17 @@ class DetDataset(Dataset):
         a = self.transform(image=image, labels=labels, bboxes=box)
 
         image = a["image"]
-        bbox = a["bboxes"][0]
 
-        return file, image, bbox
+        annot = np.zeros((1, 5), dtype=np.float32)
+        annot[0, :4] = a["bboxes"][0]
+        annot = torch.tensor(annot, dtype=torch.float32)
+
+        return file, image, annot
 
 
 class TestDetDataset(Dataset):
     def __init__(self, config, files):
+        # TODO: test 데이터를 만들 때는 resize된거에서 bbox만 얻은 다음에, 원본 사이즈에서 잘라야함
         super().__init__()
         self.config = config
         self.files = files
@@ -130,7 +134,7 @@ def get_det_dataset(config, fold):
             groups.append(last_group)
 
     # KFold
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=config.seed)
+    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=config.seed)
     indices = list(skf.split(total_imgs, groups))
     train_idx, valid_idx = indices[fold - 1]
 
@@ -164,10 +168,6 @@ def get_det_dataset(config, fold):
 
     # 테스트 데이터셋
     test_files = sorted(list((config.data_dir / "test_imgs").glob("*.jpg")))
-    with open("data/test_imgs_effdet/data.json", "r") as f:
-        data = json.load(f)
-        offsets = data["offset"]
-        ratios = data["ratio"]
     ds_test = TestDetDataset(
         config,
         test_files,

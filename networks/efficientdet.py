@@ -1544,6 +1544,7 @@ class EfficientDet(nn.Module):
                 with requests.get(url) as response:
                     with open(ckpt_path, "wb") as f:
                         f.write(response.content)
+            print("Load pretrained", ckpt_path)
             self.model.load_state_dict(torch.load(ckpt_path))
 
         self.criterion = FocalLoss()
