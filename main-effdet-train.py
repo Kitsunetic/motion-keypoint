@@ -14,6 +14,7 @@ import torch.optim as optim
 from PIL import Image
 from sklearn.model_selection import KFold
 from torch import nn, optim
+from torch.optim import lr_scheduler
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -26,27 +27,30 @@ from datasets import get_det_dataset
 
 class DetTrainer:
     def __init__(self, config, fold, checkpoint=None):
-        self.C = config
+        self.config = config
         self.fold = fold
 
-        self.det_model = networks.EfficientDet(self.C.det_model, pretrained=True)
+        self.det_model = networks.EfficientDetFinetune(config.det_model, pretrained=True, finetune=config.finetune.do)
         self.det_model.cuda()
 
         # Optimizer
-        if self.C.SAM:
-            self.optimizer = utils.SAM(self.det_model.parameters(), optim.AdamW, lr=self.C.lr)
+        if config.SAM:
+            self.optimizer = utils.SAM(self.det_model.parameters(), optim.AdamW, lr=config.lr)
         else:
-            self.optimizer = optim.AdamW(self.det_model.parameters(), lr=self.C.lr)
+            self.optimizer = optim.AdamW(self.det_model.parameters(), lr=config.lr)
 
         # Scheduler
-        self.scheduler = ReduceLROnPlateau(self.optimizer, factor=0.5, patience=3, verbose=True)
+        if config.scheduler.type == "CosineAnnealingWarmRestarts":
+            self.scheduler = lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, **config.scheduler.params)
+        elif config.scheduler.type == "ReduceLROnPlateau":
+            self.scheduler = ReduceLROnPlateau(self.optimizer, **config.scheduler.params)
 
-        self.epoch = 1
+        self.epoch = config.start_epoch
         self.best_loss = math.inf
         self.earlystop_cnt = 0
 
         # Dataset
-        self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(self.C, self.fold)
+        self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(config, self.fold)
 
         # Load Checkpoint
         if checkpoint is not None:
@@ -142,8 +146,8 @@ class DetTrainer:
                 for file, img, pred_bbox in zip(files, imgs, pred_bboxes):
                     pred_bbox = pred_bbox["rois"][0]
                     ud_bbox = pred_bbox.copy()
-                    ud_bbox[0::2] = ud_bbox[0::2] / self.C.input_width * 1920 + self.C.crop[0]
-                    ud_bbox[1::2] = ud_bbox[1::2] / self.C.input_height * 1080 + self.C.crop[1]
+                    ud_bbox[0::2] = ud_bbox[0::2] / self.config.input_width * 1920 + self.config.crop[0]
+                    ud_bbox[1::2] = ud_bbox[1::2] / self.config.input_height * 1080 + self.config.crop[1]
                     int_bbox = ud_bbox.astype(np.int64)
 
                     file = Path(file)
@@ -155,29 +159,45 @@ class DetTrainer:
 
                     t.update()
 
-    def fit(self):
-        for self.epoch in range(self.epoch, self.C.final_epoch + 1):
-            tloss = self.train_loop()
-            vloss = self.valid_loop()
+    @torch.no_grad()
+    def callback(self, tloss, vloss):
+        self.config.log.info(
+            f"Epoch: {self.epoch:03d},",
+            f"loss: {tloss:.6f};{vloss:.6f},",
+        )
+        self.config.log.flush()
 
-            self.C.log.info(
-                f"Epoch: {self.epoch:03d},",
-                f"loss: {tloss:.6f};{vloss:.6f},",
-            )
-            self.C.log.flush()
+        if isinstance(self.scheduler, lr_scheduler.CosineAnnealingWarmRestarts):
+            self.scheduler.step()
+        elif isinstance(self.scheduler, lr_scheduler.ReduceLROnPlateau):
             self.scheduler.step(vloss)
 
-            if self.best_loss > vloss:
-                self.best_loss = vloss
-                self.earlystop_cnt = 0
-                self.save(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
-            elif self.earlystop_cnt >= 10:
-                self.C.log.info(f"Stop training at epoch", self.epoch)
-                break
-            else:
-                self.earlystop_cnt += 1
+        if self.best_loss > vloss:
+            self.best_loss = vloss
+            self.earlystop_cnt = 0
+            self.save(self.config.result_dir / f"ckpt-{self.config.uid}_{self.fold}.pth")
+        else:
+            self.earlystop_cnt += 1
 
-        self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
+    def fit(self):
+        for self.epoch in range(self.epoch, self.config.final_epoch + 1):
+            if self.config.finetune.do:
+                if self.epoch <= self.config.finetune.step1_epochs:
+                    self.det_model.unfreeze_tail()
+                elif self.epoch <= self.config.finetune.step2_epochs:
+                    self.det_model.unfreeze_head()
+                else:
+                    self.det_model.unfreeze()
+
+            tloss = self.train_loop()
+            vloss = self.valid_loop()
+            self.callback(tloss, vloss)
+
+            if self.earlystop_cnt > self.config.earlystop_patience:
+                self.config.log.info(f"Stop training at epoch", self.epoch)
+                break
+
+        self.load(self.config.result_dir / f"ckpt-{self.config.uid}_{self.fold}.pth")
 
 
 def main():

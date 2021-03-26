@@ -1,4 +1,5 @@
 from pathlib import Path
+from pprint import pformat
 
 import yaml
 from easydict import EasyDict
@@ -22,11 +23,10 @@ def load_config(config_file, write_log=True):
 
     if write_log:
         log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
-        log.file.write("\r\n")
+        log.file.write("\r\n\r\n\r\n")
         log.info("===============================================================")
         log.info("학습 시작")
-        for key, value in config.items():
-            log.info(f"{key}: {value}")
+        log.info("\r\n" + pformat(config))
         log.flush()
     else:
         log = utils.CustomLogger_(config.result_dir / f"{config.uid}.log", "a")
@@ -50,11 +50,10 @@ def load_config_effdet(config_file, write_log=True):
 
     if write_log:
         log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
-        log.file.write("\r\n")
+        log.file.write("\r\n\r\n\r\n")
         log.info("===============================================================")
         log.info("학습 시작")
-        for key, value in config.items():
-            log.info(f"{key}: {value}")
+        log.info("\r\n" + pformat(config))
         log.flush()
     else:
         log = utils.CustomLogger_(config.result_dir / f"{config.uid}.log", "a")
