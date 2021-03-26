@@ -89,7 +89,7 @@ class PoseTrainer:
         ckpt = torch.load(path)
         self.pose_model.load_state_dict(ckpt["model"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
-        self.epoch = ckpt["epoch"]
+        self.epoch = ckpt["epoch"] + 1
         self.best_loss = ckpt["best_loss"]
         self.earlystop_cnt = ckpt["earlystop_cnt"]
 
@@ -282,7 +282,7 @@ def main():
 
     config = options.load_config(args.config_file)
     for fold, checkpoint in zip(config.folds, config.checkpoints):
-        config.log.file.write("\r\n")
+        config.log.file.write("===============================================================")
         config.log.info("Fold", fold)
         trainer = PoseTrainer(config, fold, checkpoint)
         trainer.fit()

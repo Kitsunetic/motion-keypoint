@@ -26,7 +26,7 @@ from datasets import get_det_dataset
 
 
 class DetTrainer:
-    def __init__(self, config, fold, checkpoint=None):
+    def __init__(self, config, fold):
         self.config = config
         self.fold = fold
 
@@ -53,8 +53,8 @@ class DetTrainer:
         self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(config, self.fold)
 
         # Load Checkpoint
-        if checkpoint is not None:
-            self.load(checkpoint)
+        if config.pretrained is not None:
+            self.load(config.pretrained)
 
     def save(self, path):
         torch.save(
@@ -73,7 +73,7 @@ class DetTrainer:
         ckpt = torch.load(path)
         self.det_model.load_state_dict(ckpt["model"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
-        self.epoch = ckpt["epoch"]
+        self.epoch = ckpt["epoch"] + 1
         self.best_loss = ckpt["best_loss"]
         self.earlystop_cnt = ckpt["earlystop_cnt"]
 
