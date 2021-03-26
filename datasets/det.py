@@ -31,14 +31,25 @@ class DetDataset(Dataset):
         T.append(A.Crop(*config.crop))
         T.append(A.Resize(config.input_height, config.input_width))
         if augmentation:
-            # T.append(A.ImageCompression())
+            # cutout
+            T_ = []
+            T_.append(A.Cutout(max_h_size=20, max_w_size=20))
+            T_.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=255))
+            T_.append(A.Cutout(max_h_size=config.input_height // 2, max_w_size=10, fill_value=255))
+            T_.append(A.Cutout(max_h_size=config.input_height // 2, max_w_size=10, fill_value=0))
+            T_.append(A.Cutout(max_h_size=10, max_w_size=config.input_width // 2, fill_value=255))
+            T_.append(A.Cutout(max_h_size=10, max_w_size=config.input_width // 2, fill_value=0))
+            T.append(A.OneOf(T_))
+
+            # geometric
             T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
             T.append(HorizontalFlipEx())
             # T.append(VerticalFlipEx())
             # T.append(A.RandomRotate90())
+
+            # impressive
+            # T.append(A.ImageCompression())
             T.append(A.IAASharpen())  # 이거 뭔지?
-            T.append(A.Cutout(max_h_size=20, max_w_size=20))
-            T.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=255))
             T_ = []
             T_.append(A.RandomBrightnessContrast())
             T_.append(A.RandomGamma())
