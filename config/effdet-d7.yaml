@@ -1,0 +1,26 @@
+det_model: efficientdet-d7
+uid: efficientdet-d7_SAM
+result_dir: results/effdet-train
+data_dir: data/ori
+
+lr: 0.0001
+batch_size: 3
+num_cpus: 3
+start_epoch: 1
+final_epoch: 200
+SAM: true
+padding: 20
+fold: 1
+
+debug: false
+
+seed: 20210309
+inference: false
+
+crop:
+  - 192
+  - 28
+  - 1728
+  - 1052
+input_width: 768 #1536
+input_height:  512 #1024

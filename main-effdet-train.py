@@ -128,6 +128,33 @@ class DetTrainer:
 
         return meanloss()
 
+    @torch.no_grad()
+    def test_loop(self, file_out_dir):
+        self.det_model.eval()
+        file_out_dir = Path(file_out_dir)
+        file_out_dir.mkdir(parents=True, exist_ok=True)
+
+        with tqdm(total=len(self.dl_test.dataset), ncols=100, file=sys.stdout) as t:
+            for files, imgs in self.dl_test:
+                imgs_ = imgs.cuda(non_blocking=True)
+                pred_bboxes = self.det_model(imgs_)
+
+                for file, img, pred_bbox in zip(files, imgs, pred_bboxes):
+                    pred_bbox = pred_bbox["rois"][0]
+                    ud_bbox = pred_bbox.copy()
+                    ud_bbox[0::2] = ud_bbox[0::2] / self.C.input_width * 1920 + self.C.crop[0]
+                    ud_bbox[1::2] = ud_bbox[1::2] / self.C.input_height * 1080 + self.C.crop[1]
+                    int_bbox = ud_bbox.astype(np.int64)
+
+                    file = Path(file)
+                    t.set_postfix_str(file.name)
+
+                    img_ori = imageio.imread(file)
+                    clip = img_ori[int_bbox[1] : int_bbox[3], int_bbox[0] : int_bbox[2]]
+                    imageio.imwrite(file_out_dir / file.name, clip)
+
+                    t.update()
+
     def fit(self):
         for self.epoch in range(self.epoch, self.C.final_epoch + 1):
             tloss = self.train_loop()
@@ -152,49 +179,6 @@ class DetTrainer:
 
         self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
 
-    @torch.no_grad()
-    def evaluate(self, dl: DataLoader, file_out_dir=None):
-        self.det_model.eval()
-
-        meanloss, meanrmse = utils.AverageMeter(), utils.AverageMeter()
-        with tqdm(total=len(dl.dataset), ncols=100, file=sys.stdout) as t:
-            for files, imgs, keypoints, target_heatmaps, ratios in dl:
-                imgs_, target_heatmaps_ = imgs.cuda(), target_heatmaps.cuda()
-                pred_heatmaps_ = self.det_model(imgs_)
-                loss = self.criterion(pred_heatmaps_, target_heatmaps_)
-                rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda())
-
-                if file_out_dir is not None:
-                    file_out_dir = Path(file_out_dir)
-                    file_out_dir.mkdir(parents=True, exist_ok=True)
-
-                    for file, img, pred_heatmap, target_heatmap, ratio in zip(
-                        files, imgs, pred_heatmaps_.cpu(), target_heatmaps, ratios
-                    ):
-                        file = Path(file)
-
-                        pred_keypoint = utils.heatmaps2keypoints(pred_heatmap).type(torch.float32)
-                        target_keypoint = utils.heatmaps2keypoints(target_heatmap).type(torch.float32)
-                        pred_keypoint = pred_keypoint * 4 / ratio.view(1, 2)
-                        target_keypoint = target_keypoint * 4 / ratio.view(1, 2)
-                        keypoint_rmse = (pred_keypoint - target_keypoint).square().mean().sqrt()
-
-                        img_np = utils.denormalize(img).permute(1, 2, 0).mul(255).type(torch.uint8).numpy()
-                        img_np = np.array(Image.fromarray(img_np))
-                        img_np = cv2.resize(img_np, (int(img_np.shape[1] / ratio[0]), int(img_np.shape[0] / ratio[1])))
-                        img_pred_keypoint = utils.draw_keypoints(img_np, pred_keypoint.type(torch.int64))
-                        img_target_keypoint = utils.draw_keypoints(img_np, target_keypoint.type(torch.int64))
-
-                        imageio.imwrite(file_out_dir / f"{file.stem}_{keypoint_rmse:.2f}.jpg", img_pred_keypoint)
-                        imageio.imwrite(file_out_dir / file.name, img_target_keypoint)
-
-                    meanloss.update(loss.item())
-                    meanrmse.update(rmse.item())
-                    t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
-                    t.update(len(imgs))
-
-        return meanloss(), meanrmse()
-
 
 def main():
     args = argparse.ArgumentParser()
@@ -206,7 +190,7 @@ def main():
     trainer.fit()
 
     # validation exmaple 이미지 저장
-    trainer.evaluate(trainer.dl_valid, config.result_dir / "example" / f"valid")
+    trainer.test_loop(config.result_dir / "example" / f"valid")
 
 
 if __name__ == "__main__":

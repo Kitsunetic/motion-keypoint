@@ -1511,6 +1511,7 @@ EFFICIENTDET_CHECKPOINT_URLS = {
     "efficientdet-d6": "https://github.com/zylo117/Yet-Another-Efficient-Pytorch/releases/download/1.0/efficientdet-d6.pth",
     "efficientdet-d7": "https://github.com/zylo117/Yet-Another-Efficient-Pytorch/releases/download/1.2/efficientdet-d7.pth",
     "efficientdet-d7x": "https://github.com/zylo117/Yet-Another-Efficient-Pytorch/releases/download/1.2/efficientdet-d8.pth",
+    "efficientdet-d8": "https://github.com/zylo117/Yet-Another-Efficient-Pytorch/releases/download/1.2/efficientdet-d8.pth",
 }
 
 EFFICIENTDET_MODEL_INDEX = {
@@ -1523,6 +1524,7 @@ EFFICIENTDET_MODEL_INDEX = {
     "efficientdet-d6": 6,
     "efficientdet-d7": 7,
     "efficientdet-d7x": 8,
+    "efficientdet-d8": 8,
 }
 
 

@@ -6,7 +6,7 @@ from easydict import EasyDict
 import utils
 
 
-def load_config(config_file):
+def load_config(config_file, write_log=True):
     with open(config_file, "r") as f:
         config = yaml.load(f, yaml.FullLoader)
         config = EasyDict(config)
@@ -20,22 +20,23 @@ def load_config(config_file):
         config.step2_epoch = 4
         config.step3_epoch = 10
 
-    if config.inference:
-        log = utils.CustomLogger(config.result_dir / f"{config.uid}-inference.log", "a")
-    else:
+    if write_log:
         log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
-    log.file.write("\r\n")
-    log.info("학습 시작")
-    for key, value in config.items():
-        log.info(f"{key}: {value}")
-    log.flush()
+        log.file.write("\r\n")
+        log.info("===============================================================")
+        log.info("학습 시작")
+        for key, value in config.items():
+            log.info(f"{key}: {value}")
+        log.flush()
+    else:
+        log = utils.CustomLogger_(config.result_dir / f"{config.uid}.log", "a")
 
     utils.seed_everything(config.seed, deterministic=False)
     config.log = log
     return config
 
 
-def load_config_effdet(config_file):
+def load_config_effdet(config_file, write_log=True):
     with open(config_file, "r") as f:
         config = yaml.load(f, yaml.FullLoader)
         config = EasyDict(config)
@@ -47,15 +48,16 @@ def load_config_effdet(config_file):
     if config.debug:
         config.final_epoch = 4
 
-    if config.inference:
-        log = utils.CustomLogger(config.result_dir / f"{config.uid}-inference.log", "a")
-    else:
+    if write_log:
         log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
-    log.file.write("\r\n")
-    log.info("학습 시작")
-    for key, value in config.items():
-        log.info(f"{key}: {value}")
-    log.flush()
+        log.file.write("\r\n")
+        log.info("===============================================================")
+        log.info("학습 시작")
+        for key, value in config.items():
+            log.info(f"{key}: {value}")
+        log.flush()
+    else:
+        log = utils.CustomLogger_(config.result_dir / f"{config.uid}.log", "a")
 
     utils.seed_everything(config.seed, deterministic=False)
     config.log = log

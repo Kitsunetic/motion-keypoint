@@ -193,6 +193,11 @@ class CustomLogger:
         self.file.flush()
 
 
+class CustomLogger_(CustomLogger):
+    def _write(self, msg, level):
+        pass
+
+
 class ChainDataset(Dataset):
     def __init__(self, *ds_list: Dataset):
         """
