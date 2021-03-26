@@ -1,9 +1,9 @@
 det_model: efficientdet-d8
 finetune: 
-  do: true
+  do: false
   step1_epochs: 5
   step2_epochs: 5
-uid: efficientdet-d8_finetune
+uid: efficientdet-d8
 
 result_dir: results/effdet-train
 data_dir: data/ori
