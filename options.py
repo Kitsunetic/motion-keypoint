@@ -1,5 +1,6 @@
 from pathlib import Path
 from pprint import pformat
+from torch.optim import lr_scheduler
 
 import yaml
 from easydict import EasyDict
@@ -61,3 +62,23 @@ def load_config_effdet(config_file, write_log=True):
     utils.seed_everything(config.seed, deterministic=False)
     config.log = log
     return config
+
+
+def get_scheduler(config, optimizer, last_epoch):
+    if config.scheduler.type == "CosineAnnealingWarmUpRestarts":
+        return utils.CosineAnnealingWarmUpRestarts(
+            optimizer,
+            **config.scheduler.params,
+            last_epoch=last_epoch,
+        )
+    elif config.scheduler.type == "CosineAnnealingWarmRestarts":
+        return lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer,
+            **config.scheduler.params,
+            last_epoch=last_epoch,
+        )
+    elif config.scheduler.type == "ReduceLROnPlateau":
+        return lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            **config.scheduler.params,
+        )

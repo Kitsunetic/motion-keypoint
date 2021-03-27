@@ -12,11 +12,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from PIL import Image
-from sklearn.model_selection import KFold
 from torch import nn, optim
 from torch.optim import lr_scheduler
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import networks
@@ -39,12 +36,6 @@ class DetTrainer:
         else:
             self.optimizer = optim.AdamW(self.det_model.parameters(), lr=config.lr)
 
-        # Scheduler
-        if config.scheduler.type == "CosineAnnealingWarmRestarts":
-            self.scheduler = lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, **config.scheduler.params)
-        elif config.scheduler.type == "ReduceLROnPlateau":
-            self.scheduler = ReduceLROnPlateau(self.optimizer, **config.scheduler.params)
-
         self.epoch = config.start_epoch
         self.best_loss = math.inf
         self.earlystop_cnt = 0
@@ -55,6 +46,9 @@ class DetTrainer:
         # Load Checkpoint
         if config.pretrained is not None:
             self.load(config.pretrained)
+
+        # Scheduler
+        self.scheduler = options.get_scheduler(self.config, self.optimizer, self.epoch - 2)
 
     def save(self, path):
         torch.save(

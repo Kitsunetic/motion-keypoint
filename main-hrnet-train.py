@@ -14,7 +14,7 @@ import torch.optim as optim
 from PIL import Image
 from sklearn.model_selection import KFold
 from torch import nn, optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -59,7 +59,12 @@ class PoseTrainer:
             self.optimizer = optim.AdamW(self.pose_model.parameters(), lr=self.C.lr)
 
         # Scheduler
-        self.scheduler = ReduceLROnPlateau(self.optimizer, factor=0.5, patience=3, verbose=True)
+        if config.scheduler.type == "CosineAnnealingWarmUpRestarts":
+            self.scheduler = utils.CosineAnnealingWarmUpRestarts(self.optimizer, **config.scheduler.params)
+        elif config.scheduler.type == "CosineAnnealingWarmRestarts":
+            self.scheduler = lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, **config.scheduler.params)
+        elif config.scheduler.type == "ReduceLROnPlateau":
+            self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, **config.scheduler.params)
 
         self.epoch = 1
         self.best_loss = math.inf

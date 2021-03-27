@@ -1,16 +1,22 @@
 det_model: efficientdet-d7
-uid: efficientdet-d7_SAM
+finetune: 
+  do: false
+  step1_epochs: 5
+  step2_epochs: 5
+uid: efficientdet-d7
+pretrained: null
+
 result_dir: results/effdet-train
 data_dir: data/ori
 
-lr: 0.0001
-batch_size: 3
-num_cpus: 3
+batch_size: 2
+num_cpus: 2
 start_epoch: 1
 final_epoch: 200
-SAM: true
+SAM: false
 padding: 20
 fold: 1
+earlystop_patience: 10
 
 debug: false
 
@@ -24,3 +30,24 @@ crop:
   - 1052
 input_width: 768 #1536
 input_height:  512 #1024
+
+lr: 0.000001
+scheduler:
+  type: CosineAnnealingWarmUpRestarts
+  params:
+    T_0: 10
+    T_mult: 1
+    eta_max: 0.001
+    T_up: 5
+    gamma: 0.5
+  # type: CosineAnnealingWarmRestarts
+  # params:
+  #   T_0: 10
+  #   T_mult: 1
+  #   eta_min: 0.00001
+  #   verbose: false
+  # type: ReduceLROnPlateau
+  # params:
+  #   factor: 0.5
+  #   patience: 3
+  #   verbose: true
