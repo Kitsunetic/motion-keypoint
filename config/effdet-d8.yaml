@@ -4,7 +4,8 @@ finetune:
   step1_epochs: 5
   step2_epochs: 5
 uid: efficientdet-d8
-pretrained: null
+pretrained: results/effdet-train/ckpt-efficientdet-d8_SAM_1.pth
+inference_only: true
 
 result_dir: results/effdet-train
 data_dir: data/ori
@@ -21,7 +22,6 @@ earlystop_patience: 10
 debug: false
 
 seed: 20210309
-inference: false
 
 crop:
   - 192

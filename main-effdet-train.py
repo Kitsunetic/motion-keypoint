@@ -48,7 +48,9 @@ class DetTrainer:
             self.load(config.pretrained)
 
         # Scheduler
-        self.scheduler = options.get_scheduler(self.config, self.optimizer, self.epoch - 2)
+        self.scheduler = options.get_scheduler(self.config, self.optimizer, -1)
+        if self.epoch != 1:
+            self.scheduler.step(epoch=self.epoch - 2)
 
     def save(self, path):
         torch.save(
@@ -135,17 +137,19 @@ class DetTrainer:
         with tqdm(total=len(self.dl_test.dataset), ncols=100, file=sys.stdout) as t:
             for files, imgs in self.dl_test:
                 imgs_ = imgs.cuda(non_blocking=True)
-                pred_bboxes = self.det_model(imgs_)
+                pred_bboxes = self.det_model(imgs_, threshold=0.001, iou_threshold=0.001)
 
                 for file, img, pred_bbox in zip(files, imgs, pred_bboxes):
-                    pred_bbox = pred_bbox["rois"][0]
-                    ud_bbox = pred_bbox.copy()
-                    ud_bbox[0::2] = ud_bbox[0::2] / self.config.input_width * 1920 + self.config.crop[0]
-                    ud_bbox[1::2] = ud_bbox[1::2] / self.config.input_height * 1080 + self.config.crop[1]
-                    int_bbox = ud_bbox.astype(np.int64)
-
                     file = Path(file)
                     t.set_postfix_str(file.name)
+
+                    pred_bbox = pred_bbox["rois"][0]
+                    ud_bbox = pred_bbox.copy()
+                    ud_bbox[0::2] = ud_bbox[0::2] / self.config.input_width * (1920 - self.config.crop[0] * 2)
+                    ud_bbox[1::2] = ud_bbox[1::2] / self.config.input_height * (1080 - self.config.crop[1] * 2)
+                    ud_bbox[0::2] += self.config.crop[0]
+                    ud_bbox[1::2] += self.config.crop[1]
+                    int_bbox = ud_bbox.astype(np.int64)
 
                     img_ori = imageio.imread(file)
                     clip = img_ori[int_bbox[1] : int_bbox[3], int_bbox[0] : int_bbox[2]]
@@ -201,7 +205,8 @@ def main():
 
     config = options.load_config(args.config_file)
     trainer = DetTrainer(config, 1)
-    trainer.fit()
+    if not config.inference_only:
+        trainer.fit()
 
     # validation exmaple 이미지 저장
     trainer.test_loop(config.result_dir / "example" / f"valid")

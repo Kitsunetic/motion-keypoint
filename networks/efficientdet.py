@@ -1551,11 +1551,11 @@ class EfficientDet(nn.Module):
 
         self.criterion = FocalLoss()
 
-    def forward(self, imgs, annotations=None):
+    def forward(self, imgs, annotations=None, threshold=0.2, iou_threshold=0.2):
         if annotations is None:
             with torch.no_grad():
                 _, regression, classification, anchors = self.model(imgs)
-                return postprocess(imgs, anchors, regression, classification)
+                return postprocess(imgs, anchors, regression, classification, threshold=threshold, iou_threshold=iou_threshold)
         else:
             _, regression, classification, anchors = self.model(imgs)
             cls_loss, reg_loss = self.criterion(classification, regression, anchors, annotations)
