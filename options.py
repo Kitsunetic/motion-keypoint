@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 from pprint import pformat
-from torch.optim import lr_scheduler
 
 import yaml
 from easydict import EasyDict
+from torch.optim import lr_scheduler
 
 import utils
 
@@ -42,13 +43,10 @@ def load_config_effdet(config_file, write_log=True):
         config = yaml.load(f, yaml.FullLoader)
         config = EasyDict(config)
 
-    config.result_dir = Path(config.result_dir)
-    config.result_dir.mkdir(parents=True, exist_ok=True)
-    config.data_dir = Path(config.data_dir)
-
     if config.debug:
         config.final_epoch = 4
 
+    log_path = os.path.join(config.result_dir, f"{config.uid}.log")
     if write_log:
         log = utils.CustomLogger(config.result_dir / f"{config.uid}.log", "a")
         log.file.write("\r\n\r\n\r\n")
@@ -58,6 +56,10 @@ def load_config_effdet(config_file, write_log=True):
         log.flush()
     else:
         log = utils.CustomLogger_(config.result_dir / f"{config.uid}.log", "a")
+
+    config.result_dir = Path(config.result_dir)
+    config.result_dir.mkdir(parents=True, exist_ok=True)
+    config.data_dir = Path(config.data_dir)
 
     utils.seed_everything(config.seed, deterministic=False)
     config.log = log

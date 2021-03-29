@@ -92,7 +92,6 @@ class DetDataset(Dataset):
 
 class TestDetDataset(Dataset):
     def __init__(self, config, files):
-        # TODO: test 데이터를 만들 때는 resize된거에서 bbox만 얻은 다음에, 원본 사이즈에서 잘라야함
         super().__init__()
         self.config = config
         self.files = files
@@ -111,7 +110,6 @@ class TestDetDataset(Dataset):
     def __getitem__(self, idx):
         file = str(self.files[idx])
         image = imageio.imread(file)
-
         a = self.transform(image=image)
 
         image = a["image"]
@@ -181,7 +179,7 @@ def get_det_dataset(config, fold):
     )
 
     # 테스트 데이터셋
-    test_files = sorted(list((config.data_dir / "test_imgs").glob("*.jpg")))
+    test_files = sorted(list((config.data_dir / "test_imgs").glob("*.jpg")), reverse=True)
     ds_test = TestDetDataset(
         config,
         test_files,

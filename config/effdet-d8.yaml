@@ -1,17 +1,30 @@
-det_model: efficientdet-d8
-finetune: 
-  do: false
-  step1_epochs: 5
-  step2_epochs: 5
-uid: efficientdet-d8
-pretrained: results/effdet-train/ckpt-efficientdet-d8_SAM_1.pth
-inference_only: true
+det_model: 
+  name: efficientdet-d8
+  # pretrained: results/effdet-train/efficientdet-d8_SAM.log
+  pretrained: null
+  finetune: 
+    do: false
+    step1_epochs: 5
+    step2_epochs: 5
+uid: efficientdet-d8_multi5_flip
+
+inference:
+  inference_only: true
+  multiscale_test:
+    sizes:
+      - [384, 256]   # 3:2
+      - [768, 512]   # 6:4
+      - [1152, 768]  # 9:6
+      - [1536, 1024] # 12:8
+      - [1920, 1280] # 15:10
+  flip_test:
+    horizontal: true
 
 result_dir: results/effdet-train
 data_dir: data/ori
 
-batch_size: 2
-num_cpus: 2
+batch_size: 1
+num_cpus: 3
 start_epoch: 1
 final_epoch: 200
 SAM: false
@@ -28,8 +41,8 @@ crop:
   - 28
   - 1728
   - 1052
-input_width: 768 #1536
-input_height:  512 #1024
+input_width: 1536 #768 #1536
+input_height: 1024 #512 #1024
 
 lr: 0.000001
 scheduler:

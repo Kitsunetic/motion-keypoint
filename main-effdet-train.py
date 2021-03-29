@@ -1,6 +1,7 @@
 import argparse
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ import torch.optim as optim
 from PIL import Image
 from torch import nn, optim
 from torch.optim import lr_scheduler
+from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 import networks
@@ -23,32 +25,34 @@ from datasets import get_det_dataset
 
 
 class DetTrainer:
-    def __init__(self, config, fold):
-        self.config = config
+    def __init__(self, C, fold):
+        self.C = C
         self.fold = fold
 
-        self.det_model = networks.EfficientDetFinetune(config.det_model, pretrained=True, finetune=config.finetune.do)
+        self.det_model = networks.EfficientDetFinetune(
+            self.C.det_model.name, pretrained=True, finetune=self.C.det_model.finetune.do
+        )
         self.det_model.cuda()
 
         # Optimizer
-        if config.SAM:
-            self.optimizer = utils.SAM(self.det_model.parameters(), optim.AdamW, lr=config.lr)
+        if self.C.SAM:
+            self.optimizer = utils.SAM(self.det_model.parameters(), optim.AdamW, lr=self.C.lr)
         else:
-            self.optimizer = optim.AdamW(self.det_model.parameters(), lr=config.lr)
+            self.optimizer = optim.AdamW(self.det_model.parameters(), lr=self.C.lr)
 
-        self.epoch = config.start_epoch
+        self.epoch = self.C.start_epoch
         self.best_loss = math.inf
         self.earlystop_cnt = 0
 
         # Dataset
-        self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(config, self.fold)
+        self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(C, self.fold)
 
         # Load Checkpoint
-        if config.pretrained is not None:
-            self.load(config.pretrained)
+        if self.C.det_model.pretrained is not None:
+            self.load(self.C.det_model.pretrained)
 
         # Scheduler
-        self.scheduler = options.get_scheduler(self.config, self.optimizer, -1)
+        self.scheduler = options.get_scheduler(self.C, self.optimizer, -1)
         if self.epoch != 1:
             self.scheduler.step(epoch=self.epoch - 2)
 
@@ -129,41 +133,12 @@ class DetTrainer:
         return meanloss()
 
     @torch.no_grad()
-    def test_loop(self, file_out_dir):
-        self.det_model.eval()
-        file_out_dir = Path(file_out_dir)
-        file_out_dir.mkdir(parents=True, exist_ok=True)
-
-        with tqdm(total=len(self.dl_test.dataset), ncols=100, file=sys.stdout) as t:
-            for files, imgs in self.dl_test:
-                imgs_ = imgs.cuda(non_blocking=True)
-                pred_bboxes = self.det_model(imgs_, threshold=0.001, iou_threshold=0.001)
-
-                for file, img, pred_bbox in zip(files, imgs, pred_bboxes):
-                    file = Path(file)
-                    t.set_postfix_str(file.name)
-
-                    pred_bbox = pred_bbox["rois"][0]
-                    ud_bbox = pred_bbox.copy()
-                    ud_bbox[0::2] = ud_bbox[0::2] / self.config.input_width * (1920 - self.config.crop[0] * 2)
-                    ud_bbox[1::2] = ud_bbox[1::2] / self.config.input_height * (1080 - self.config.crop[1] * 2)
-                    ud_bbox[0::2] += self.config.crop[0]
-                    ud_bbox[1::2] += self.config.crop[1]
-                    int_bbox = ud_bbox.astype(np.int64)
-
-                    img_ori = imageio.imread(file)
-                    clip = img_ori[int_bbox[1] : int_bbox[3], int_bbox[0] : int_bbox[2]]
-                    imageio.imwrite(file_out_dir / file.name, clip)
-
-                    t.update()
-
-    @torch.no_grad()
     def callback(self, tloss, vloss):
-        self.config.log.info(
+        self.C.log.info(
             f"Epoch: {self.epoch:03d},",
             f"loss: {tloss:.6f};{vloss:.6f},",
         )
-        self.config.log.flush()
+        self.C.log.flush()
 
         if isinstance(self.scheduler, lr_scheduler.CosineAnnealingWarmRestarts):
             self.scheduler.step()
@@ -173,16 +148,16 @@ class DetTrainer:
         if self.best_loss > vloss:
             self.best_loss = vloss
             self.earlystop_cnt = 0
-            self.save(self.config.result_dir / f"ckpt-{self.config.uid}_{self.fold}.pth")
+            self.save(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
         else:
             self.earlystop_cnt += 1
 
     def fit(self):
-        for self.epoch in range(self.epoch, self.config.final_epoch + 1):
-            if self.config.finetune.do:
-                if self.epoch <= self.config.finetune.step1_epochs:
+        for self.epoch in range(self.epoch, self.C.final_epoch + 1):
+            if self.C.finetune.do:
+                if self.epoch <= self.C.finetune.step1_epochs:
                     self.det_model.unfreeze_tail()
-                elif self.epoch <= self.config.finetune.step2_epochs:
+                elif self.epoch <= self.C.finetune.step2_epochs:
                     self.det_model.unfreeze_head()
                 else:
                     self.det_model.unfreeze()
@@ -191,11 +166,105 @@ class DetTrainer:
             vloss = self.valid_loop()
             self.callback(tloss, vloss)
 
-            if self.earlystop_cnt > self.config.earlystop_patience:
-                self.config.log.info(f"Stop training at epoch", self.epoch)
+            if self.earlystop_cnt > self.C.earlystop_patience:
+                self.C.log.info(f"Stop training at epoch", self.epoch)
                 break
 
-        self.load(self.config.result_dir / f"ckpt-{self.config.uid}_{self.fold}.pth")
+        self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
+
+    def scale_inference_single_image(self, img, dw, dh, flip=False):
+        _, h, w = img.shape
+        img = img.unsqueeze(0)
+
+        ratio_x = dw / w
+        ratio_y = dh / h
+        img = F.interpolate(img, (dh, dw))
+        if flip:
+            img = torch.flip(img, dims=[3])
+        result = self.det_model(img)[0]
+
+        class_mask = result["class_ids"] == 0
+        rois = result["rois"][class_mask]
+        scores = result["scores"][class_mask]
+
+        if len(rois) > 0:
+            j = np.argmax(scores)
+            roi = rois[j]
+            score = scores[j]
+
+            if flip:
+                roi[0::2] = (dw - roi[0::2]) / ratio_x
+                roi[1::2] /= ratio_y
+                temp = roi[0].copy()
+                roi[0] = roi[2]
+                roi[2] = temp
+            else:
+                roi[0::2] /= ratio_x
+                roi[1::2] /= ratio_y
+
+            return roi, score
+        else:
+            return None, None
+
+    def multiscale_inference(self, imgs):
+        """사이즈/LR에 대해 bbox 좌표를 구하고, voting이 아니라 좌표값에 대한 가중평균을 구함"""
+        rectified_rois = []
+
+        for img in imgs:
+            rois = []
+            scores = []
+            for dw, dh in self.C.inference.multiscale_test.sizes:
+                roi, score = self.scale_inference_single_image(img, dw, dh, flip=False)
+                if roi is not None:
+                    rois.append(roi)
+                    scores.append(score)
+
+                if self.C.inference.flip_test.horizontal:
+                    roi, score = self.scale_inference_single_image(img, dw, dh, flip=True)
+                    if roi is not None:
+                        rois.append(roi)
+                        scores.append(score)
+
+            # print(len(rois) )
+
+            rois = np.stack(rois)
+            scores = np.stack(scores)
+            new_roi = np.average(rois, axis=0, weights=scores)
+            rectified_rois.append(new_roi)
+
+        return np.stack(rectified_rois)
+
+    @torch.no_grad()
+    def test_loop(self, file_out_dir):
+        self.det_model.eval()
+        file_out_dir = Path(file_out_dir)
+        file_out_dir.mkdir(parents=True, exist_ok=True)
+
+        inf = self.C.inference
+
+        with tqdm(total=len(self.dl_test.dataset), ncols=100, file=sys.stdout) as t:
+            for files, imgs in self.dl_test:
+                imgs_ = imgs.cuda(non_blocking=True)
+
+                # multi-scale test
+                pred_bboxes = self.multiscale_inference(imgs_)
+
+                for file, pred_bbox in zip(files, pred_bboxes):
+                    file = Path(file)
+                    t.set_postfix_str(file.name)
+
+                    ud_bbox = pred_bbox.copy()
+                    ud_bbox[0::2] = ud_bbox[0::2] / self.C.input_width * (1920 - self.C.crop[0] * 2)
+                    ud_bbox[1::2] = ud_bbox[1::2] / self.C.input_height * (1080 - self.C.crop[1] * 2)
+                    ud_bbox[0::2] += self.C.crop[0]
+                    ud_bbox[1::2] += self.C.crop[1]
+                    int_bbox = ud_bbox.astype(np.int64)
+
+                    img_ori = imageio.imread(file)
+                    clip = img_ori[int_bbox[1] : int_bbox[3], int_bbox[0] : int_bbox[2]]
+                    imageio.imwrite(file_out_dir / file.name, clip)
+
+                    t.update()
 
 
 def main():
@@ -205,11 +274,14 @@ def main():
 
     config = options.load_config(args.config_file)
     trainer = DetTrainer(config, 1)
-    if not config.inference_only:
+    if not config.inference.inference_only:
         trainer.fit()
 
     # validation exmaple 이미지 저장
-    trainer.test_loop(config.result_dir / "example" / f"valid")
+    result_dir = config.result_dir / "example" / f"valid_{config.uid}"
+    if result_dir.exists():
+        shutil.rmtree(result_dir)
+    trainer.test_loop(result_dir)
 
 
 if __name__ == "__main__":
