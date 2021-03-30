@@ -1,0 +1,27 @@
+# TODO: BCE loss로 학습도 해보고싶은데
+
+uid: HRNet_W48_null
+seed: 20210309
+result_dir: results/hrnet-train/example
+
+pose_model:
+  name: HRNet-W48
+  pretrained: null
+
+dataset:
+  dirs: 
+    - data/ori/test_imgs
+    - results/effdet-train/example/valid_efficientdet-d7_multi5_flip
+    - results/effdet-train/example/valid_efficientdet-d7_SAM_multi5_flip
+  batch_size: 1 # RMSE 계산을 편하게 하기 위해 batch는 1로 설정
+  num_cpus: 1
+  padding: 20
+  input_width: 576
+  input_height: 768
+
+test:
+  multiscale_test:
+    sizes:
+      - [576, 768]
+  flip_test:
+    horizontal_flip: true

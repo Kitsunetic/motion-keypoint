@@ -21,9 +21,9 @@ from .common import HorizontalFlipEx, VerticalFlipEx
 
 
 class KeypointDataset(Dataset):
-    def __init__(self, config, files, keypoints, augmentation):
+    def __init__(self, C, files, keypoints, augmentation):
         super().__init__()
-        self.config = config
+        self.C = C
         self.files = files
         self.keypoints = keypoints
 
@@ -66,7 +66,7 @@ class KeypointDataset(Dataset):
                 image = imageio.imread(file)
 
                 keypoint = self.keypoints[idx]
-                box = utils.keypoint2box(keypoint, self.config.padding)
+                box = utils.keypoint2box(keypoint, self.C.dataset.padding)
                 box = np.expand_dims(box, 0)
                 labels = np.array([0], dtype=np.int64)
                 a = self.transform(image=image, labels=labels, bboxes=box, keypoints=keypoint)
@@ -85,11 +85,12 @@ class KeypointDataset(Dataset):
         bbox크기만큼 이미지를 자르고, keypoint에 offset/ratio를 준다.
         """
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
+        cfg = self.C.dataset
 
         # HRNet의 입력 이미지 크기로 resize
-        ratio = (self.config.input_width / image.shape[2], self.config.input_height / image.shape[1])
+        ratio = (cfg.input_width / image.shape[2], cfg.input_height / image.shape[1])
         ratio = torch.tensor(ratio, dtype=torch.float32)
-        image = F.interpolate(image.unsqueeze(0), (self.config.input_height, self.config.input_width))[0]
+        image = F.interpolate(image.unsqueeze(0), (cfg.input_height, cfg.input_width))[0]
 
         # bbox만큼 빼줌
         keypoint[:, 0] -= bbox[0]
@@ -106,7 +107,7 @@ class KeypointDataset(Dataset):
         # keypoint를 heatmap으로 변환
         # TODO: 완전히 정답이 아니면 틀린 것과 같은 점수. 좀 부드럽게 만들 수는 없을지?
         # heatmap regression loss중에 soft~~~ 한 이름이 있던거같은데
-        heatmap = utils.keypoints2heatmaps(keypoint, self.config.input_height // 4, self.config.input_width // 4)
+        heatmap = utils.keypoints2heatmaps(keypoint, cfg.input_height // 4, cfg.input_width // 4)
 
         return image, keypoint, heatmap, ratio
 
@@ -155,7 +156,7 @@ class TestKeypointDataset(Dataset):
 
 
 def get_pose_datasets(config, fold):
-    total_imgs = np.array(sorted(list((config.data_dir / "train_imgs").glob("*.jpg"))))
+    total_imgs = np.array(sorted(list((config.dataset.dir / "train_imgs").glob("*.jpg"))))
     df = pd.read_csv("data/ori/train_df.csv")
     total_keypoints = df.to_numpy()[:, 1:].astype(np.float32)
     total_keypoints = np.stack([total_keypoints[:, 0::2], total_keypoints[:, 1::2]], axis=2)
@@ -202,21 +203,21 @@ def get_pose_datasets(config, fold):
     )
     dl_train = DataLoader(
         ds_train,
-        batch_size=config.batch_size,
-        num_workers=config.num_cpus,
+        batch_size=config.dataset.batch_size,
+        num_workers=config.dataset.num_cpus,
         shuffle=True,
         pin_memory=True,
     )
     dl_valid = DataLoader(
         ds_valid,
-        batch_size=config.batch_size,
-        num_workers=config.num_cpus,
+        batch_size=config.dataset.batch_size,
+        num_workers=config.dataset.num_cpus,
         shuffle=False,
         pin_memory=True,
     )
 
     # 테스트 데이터셋
-    test_files = sorted(list((config.data_dir / "test_imgs").glob("*.jpg")))
+    test_files = sorted(list((config.dataset.dir / "test_imgs").glob("*.jpg")))
     with open("data/test_imgs_effdet/data.json", "r") as f:
         data = json.load(f)
         offsets = data["offset"]
@@ -229,8 +230,8 @@ def get_pose_datasets(config, fold):
     )
     dl_test = DataLoader(
         ds_test,
-        batch_size=config.batch_size,
-        num_workers=config.num_cpus,
+        batch_size=config.dataset.batch_size,
+        num_workers=config.dataset.num_cpus,
         shuffle=False,
         pin_memory=True,
     )

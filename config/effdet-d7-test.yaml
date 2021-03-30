@@ -1,0 +1,43 @@
+uid: efficientdet-d7_multi5_flip_median_rot90
+result_dir: results/effdet-train
+seed: 20210309
+
+det_model: 
+  name: efficientdet-d7
+  
+  pretrained: results/effdet-train/ckpt-efficientdet-d7_1.pth
+  # pretrained: results/effdet-train/ckpt-efficientdet-d7_SAM_1.pth
+  # pretrained: null
+  
+  finetune: 
+    do: false
+    step1_epochs: 5
+    step2_epochs: 5
+
+test:
+  multiscale_test:
+    sizes:
+      - [384, 256]   # 3:2
+      - [768, 512]   # 6:4
+      - [1152, 768]  # 9:6
+      - [1536, 1024] # 12:8
+  flip_test:
+    horizontal: true
+  rotate_test:
+    left: true
+    right: true
+  voting_method: median # weighted_mean, mean, median
+
+dataset:
+  dirs:
+    - data/ori/test_imgs
+  batch_size: 5
+  num_cpus: 1
+  
+  crop:
+    - 192
+    - 28
+    - 1728
+    - 1052
+  input_width: 1536 #768 #1536
+  input_height: 1024 #512 #1024

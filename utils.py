@@ -304,7 +304,7 @@ def draw_keypoints(image: np.ndarray, keypoints: np.ndarray):
     colors = {k: tuple(map(int, np.random.randint(0, 255, 3))) for k in range(24)}
     x1, y1 = max(0, min(keypoints[:, 0]) - 10), max(0, min(keypoints[:, 1]) - 10)
     x2, y2 = min(image.shape[1], max(keypoints[:, 0]) + 10), min(image.shape[0], max(keypoints[:, 1]) + 10)
-    cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
+    # cv2.rectangle(image, (x1, y1), (x2, y2), (255, 100, 91), 3)
 
     for i, keypoint in enumerate(keypoints):
         cv2.circle(image, tuple(keypoint), 3, colors.get(i), thickness=3, lineType=cv2.FILLED)
@@ -565,3 +565,9 @@ class CosineAnnealingWarmUpRestarts(_LRScheduler):
         self.last_epoch = math.floor(epoch)
         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
             param_group["lr"] = lr
+
+
+def np_swap(x, a, b):
+    temp = x[a]
+    x[a] = x[b]
+    x[b] = temp

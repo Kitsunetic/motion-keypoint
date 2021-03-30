@@ -95,10 +95,11 @@ class TestDetDataset(Dataset):
         super().__init__()
         self.config = config
         self.files = files
+        dataset = config.dataset
 
         T = []
-        T.append(A.Crop(*config.crop))
-        T.append(A.Resize(config.input_height, config.input_width))
+        T.append(A.Crop(*dataset.crop))
+        T.append(A.Resize(dataset.input_height, dataset.input_width))
         T.append(A.Normalize())
         T.append(ToTensorV2())
 
@@ -118,7 +119,7 @@ class TestDetDataset(Dataset):
 
 
 def get_det_dataset(config, fold):
-    total_imgs = np.array(sorted(list((config.data_dir / "train_imgs").glob("*.jpg"))))
+    total_imgs = np.array(sorted(list((config.dataset.data_dir / "train_imgs").glob("*.jpg"))))
     df = pd.read_csv("data/ori/train_df.csv")
     total_keypoints = df.to_numpy()[:, 1:].astype(np.float32)
     total_keypoints = np.stack([total_keypoints[:, 0::2], total_keypoints[:, 1::2]], axis=2)
@@ -165,29 +166,29 @@ def get_det_dataset(config, fold):
     )
     dl_train = DataLoader(
         ds_train,
-        batch_size=config.batch_size,
-        num_workers=config.num_cpus,
+        batch_size=config.dataset.batch_size,
+        num_workers=config.dataset.num_cpus,
         shuffle=True,
         pin_memory=True,
     )
     dl_valid = DataLoader(
         ds_valid,
-        batch_size=config.batch_size,
-        num_workers=config.num_cpus,
+        batch_size=config.dataset.batch_size,
+        num_workers=config.dataset.num_cpus,
         shuffle=False,
         pin_memory=True,
     )
 
     # 테스트 데이터셋
-    test_files = sorted(list((config.data_dir / "test_imgs").glob("*.jpg")), reverse=True)
+    test_files = sorted(list((config.dataset.data_dir / "test_imgs").glob("*.jpg")), reverse=True)
     ds_test = TestDetDataset(
         config,
         test_files,
     )
     dl_test = DataLoader(
         ds_test,
-        batch_size=config.batch_size,
-        num_workers=config.num_cpus,
+        batch_size=config.dataset.batch_size,
+        num_workers=config.dataset.num_cpus,
         shuffle=False,
         pin_memory=True,
     )
