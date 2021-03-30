@@ -1,6 +1,4 @@
 import json
-from copy import deepcopy
-from pathlib import Path
 
 import albumentations as A
 import cv2
@@ -14,16 +12,15 @@ from albumentations.pytorch import ToTensorV2
 from error_list import error_list
 from PIL import Image
 from sklearn.model_selection import KFold, StratifiedKFold
-from torch import nn, optim
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from .common import HorizontalFlipEx, VerticalFlipEx
 
 
 class KeypointDataset(Dataset):
-    def __init__(self, C, files, keypoints, augmentation):
+    def __init__(self, config, files, keypoints, augmentation):
         super().__init__()
-        self.C = C
+        self.C = config
         self.files = files
         self.keypoints = keypoints
 
@@ -31,22 +28,29 @@ class KeypointDataset(Dataset):
         # T.append(A.Crop(0, 28, 1920, 1080 - 28))  # 1920x1080 --> 1920x1024
         # T.append(A.Resize(512, 1024))
         if augmentation:
-            T.append(A.ImageCompression())
-            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, rotate_limit=30))
+            # 중간에 기구로 잘리는 경우를 가장
+            T_ = []
+            T_.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=0))
+            T_.append(A.Cutout(max_h_size=1920, max_w_size=40, fill_value=0))
+            T_.append(A.Cutout(max_h_size=40, max_w_size=1080, fill_value=0))
+            T.append(A.OneOf(T_))
+
+            # geomatric augmentations
+            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
             T.append(HorizontalFlipEx())
             T.append(VerticalFlipEx())
             T.append(A.RandomRotate90())
-            T.append(A.IAASharpen())  # 이거 뭔지?
-            T.append(A.Cutout())
+
             T_ = []
             T_.append(A.RandomBrightnessContrast())
             T_.append(A.RandomGamma())
             T_.append(A.RandomBrightness())
             T_.append(A.RandomContrast())
             T.append(A.OneOf(T_))
-            T.append(A.GaussNoise())
+
             T.append(A.Blur())
-        T.append(A.Normalize())
+        if self.C.dataset.normalize:
+            T.append(A.Normalize())
         T.append(ToTensorV2())
 
         self.transform = A.Compose(
@@ -60,6 +64,8 @@ class KeypointDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
+        # rotation/scale 등으로 keypoint가 화면 밖으로 나가면 exception 발생.
+        # 그럼 데이터 다시 만들어줌
         while True:
             try:
                 file = str(self.files[idx])
@@ -72,6 +78,8 @@ class KeypointDataset(Dataset):
                 a = self.transform(image=image, labels=labels, bboxes=box, keypoints=keypoint)
 
                 image = a["image"]
+                if not self.C.dataset.normalize:
+                    image = image.type(torch.float) / 255.0
                 bbox = list(map(int, a["bboxes"][0]))
                 keypoint = torch.tensor(a["keypoints"], dtype=torch.float32)
                 image, keypoint, heatmap, ratio = self._resize_image(image, bbox, keypoint)
@@ -85,12 +93,12 @@ class KeypointDataset(Dataset):
         bbox크기만큼 이미지를 자르고, keypoint에 offset/ratio를 준다.
         """
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
-        cfg = self.C.dataset
+        CD = self.C.dataset
 
         # HRNet의 입력 이미지 크기로 resize
-        ratio = (cfg.input_width / image.shape[2], cfg.input_height / image.shape[1])
+        ratio = (CD.input_width / image.shape[2], CD.input_height / image.shape[1])
         ratio = torch.tensor(ratio, dtype=torch.float32)
-        image = F.interpolate(image.unsqueeze(0), (cfg.input_height, cfg.input_width))[0]
+        image = F.interpolate(image.unsqueeze(0), (CD.input_height, CD.input_width))[0]
 
         # bbox만큼 빼줌
         keypoint[:, 0] -= bbox[0]
@@ -107,35 +115,23 @@ class KeypointDataset(Dataset):
         # keypoint를 heatmap으로 변환
         # TODO: 완전히 정답이 아니면 틀린 것과 같은 점수. 좀 부드럽게 만들 수는 없을지?
         # heatmap regression loss중에 soft~~~ 한 이름이 있던거같은데
-        heatmap = utils.keypoints2heatmaps(keypoint, cfg.input_height // 4, cfg.input_width // 4)
+        heatmap = utils.keypoints2heatmaps(keypoint, CD.input_height // 4, CD.input_width // 4)
 
         return image, keypoint, heatmap, ratio
 
 
 class TestKeypointDataset(Dataset):
-    def __init__(self, files, offsets, ratios, augmentation):
+    def __init__(self, files, info, normalize, size=(576, 768), rotation=0, flip=False):
         super().__init__()
         self.files = files
-        self.offsets = offsets
-        self.ratios = ratios
+        self.info = info
+        self.size = size
+        self.rotation = rotation % 4
+        self.flip = flip
 
         T = []
-        if augmentation:
-            T.append(A.ImageCompression())
-            # T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT, value=0))
-            # T.append(utils.HorizontalFlipEx())
-            # T.append(A.RandomRotate90())
-            T.append(A.IAASharpen())  # 이거 뭔지?
-            T.append(A.Cutout())
-            T_ = []
-            T_.append(A.RandomBrightnessContrast())
-            T_.append(A.RandomGamma())
-            T_.append(A.RandomBrightness())
-            T_.append(A.RandomContrast())
-            T.append(A.OneOf(T_))
-            T.append(A.GaussNoise())
-            T.append(A.Blur())
-        T.append(A.Normalize())
+        if normalize:
+            T.append(A.Normalize())
         T.append(ToTensorV2())
 
         self.transform = A.Compose(transforms=T)
@@ -145,19 +141,28 @@ class TestKeypointDataset(Dataset):
 
     def __getitem__(self, idx):
         file = str(self.files[idx])
-        offset = torch.tensor(self.offsets[idx], dtype=torch.float32)
-        ratio = torch.tensor(self.ratios[idx], dtype=torch.float32)
+        img = imageio.imread(file)
+        img = self.transform(image=img)["image"]
 
-        image = imageio.imread(file)
-        a = self.transform(image=image)
-        image = a["image"]
+        if self.rotation > 0:
+            img = torch.rot90(img, self.rotation, (1, 2))
+        ori_size = (img.size(2), img.size(1))
 
-        return file, image, offset, ratio
+        ratio = (self.size[0] / img.shape[2], self.size[1] / img.shape[1])
+        img = F.interpolate(img.unsqueeze(0), self.size[::-1], mode="bilinear", align_corners=True).squeeze(0)
+
+        if self.flip:
+            img = torch.flip(img, (2,))
+
+        roi = self.info[idx]["roi"]
+        offset = roi[:2]
+
+        return file, img, offset, ratio, ori_size
 
 
-def get_pose_datasets(config, fold):
-    total_imgs = np.array(sorted(list((config.dataset.dir / "train_imgs").glob("*.jpg"))))
-    df = pd.read_csv("data/ori/train_df.csv")
+def get_pose_datasets(C, fold):
+    total_imgs = np.array(sorted(list(C.dataset.train_dir.glob("*.jpg"))))
+    df = pd.read_csv(C.dataset.target_file)
     total_keypoints = df.to_numpy()[:, 1:].astype(np.float32)
     total_keypoints = np.stack([total_keypoints[:, 0::2], total_keypoints[:, 1::2]], axis=2)
 
@@ -184,56 +189,36 @@ def get_pose_datasets(config, fold):
             groups.append(last_group)
 
     # KFold
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=config.seed)
+    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=C.seed)
     indices = list(skf.split(total_imgs, groups))
     train_idx, valid_idx = indices[fold - 1]
 
     # 데이터셋 생성
     ds_train = KeypointDataset(
-        config,
+        C,
         total_imgs[train_idx],
         total_keypoints[train_idx],
         augmentation=True,
     )
     ds_valid = KeypointDataset(
-        config,
+        C,
         total_imgs[valid_idx],
         total_keypoints[valid_idx],
         augmentation=False,
     )
     dl_train = DataLoader(
         ds_train,
-        batch_size=config.dataset.batch_size,
-        num_workers=config.dataset.num_cpus,
+        batch_size=C.dataset.batch_size,
+        num_workers=C.dataset.num_cpus,
         shuffle=True,
         pin_memory=True,
     )
     dl_valid = DataLoader(
         ds_valid,
-        batch_size=config.dataset.batch_size,
-        num_workers=config.dataset.num_cpus,
+        batch_size=C.dataset.batch_size,
+        num_workers=C.dataset.num_cpus,
         shuffle=False,
         pin_memory=True,
     )
 
-    # 테스트 데이터셋
-    test_files = sorted(list((config.dataset.dir / "test_imgs").glob("*.jpg")))
-    with open("data/test_imgs_effdet/data.json", "r") as f:
-        data = json.load(f)
-        offsets = data["offset"]
-        ratios = data["ratio"]
-    ds_test = TestKeypointDataset(
-        test_files,
-        offsets,
-        ratios,
-        augmentation=False,
-    )
-    dl_test = DataLoader(
-        ds_test,
-        batch_size=config.dataset.batch_size,
-        num_workers=config.dataset.num_cpus,
-        shuffle=False,
-        pin_memory=True,
-    )
-
-    return dl_train, dl_valid, dl_test
+    return dl_train, dl_valid

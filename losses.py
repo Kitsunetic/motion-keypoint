@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -77,3 +78,9 @@ class KeypointRMSE(nn.Module):
         loss = (pred_positions - real_positions).square().mean().sqrt()
 
         return loss
+
+
+class KeypointBCELoss(nn.BCELoss):
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        input.sigmoid_()
+        return super().forward(input, target)
