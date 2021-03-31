@@ -1,5 +1,5 @@
 pose_model: HRNet-W48
-uid: HRNet_W48-SAM-BCE
+uid: HRNet_W48-BCE
 result_dir: results/hrnet-train2
 data_dir: data/ori
 debug: false
@@ -7,7 +7,7 @@ seed: 20210309
 
 train:
   max_epochs: 200
-  SAM: true
+  SAM: false
   folds: 
     - 1
     - 2
@@ -15,12 +15,17 @@ train:
     - 4
     - 5
   checkpoints: 
+    - results/hrnet-train2/HRNet_W48-BCE_1.pth
     - null
     - null
     - null
     - null
-    - null
-  loss_type: awing # ce, bce, mse, mae, awing
+  loss_type: bce # ce, bce, mse, mae, awing
+  
+  finetune:
+    do: true
+    step1_epochs: 4
+    step2_epochs: 7
   
   lr: 0.00001
   scheduler:
@@ -48,11 +53,16 @@ dataset:
   train_dir: data/ori/train_imgs
   target_file: data/ori/train_df.csv
   
-  normalize: false
+  normalize: true
+  mean: [0.411, 0.420, 0.416]
+  std: [0.307, 0.303, 0.292]
+  smooth_heatmap: 
+    do: true
+    size: 5
+    values: [0.01, 0.1, 0.2, 0.4, 0.8]
+  input_width: 576
+  input_height: 768
   
   batch_size: 10
   num_cpus: 10
   padding: 20
-  input_width: 576
-  input_height: 768
-

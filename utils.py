@@ -55,9 +55,9 @@ class AverageMeter(object):
     """
 
     def __init__(self):
-        self.avg = 0
         self.sum = 0
         self.cnt = 0
+        self.avg = 0
 
     def update(self, val, n=1):
         if n > 0:
@@ -365,10 +365,20 @@ def heatmaps2keypoints(p: torch.Tensor):
 
 
 @torch.no_grad()
-def keypoints2heatmaps(k: torch.Tensor, h=768 // 4, w=576 // 4):
+def keypoints2heatmaps(
+    k: torch.Tensor,
+    h=768 // 4,
+    w=576 // 4,
+    smooth=False,
+    smooth_size=3,
+    smooth_values=[0.1, 0.4, 0.8],
+):
     k = k.type(torch.int64)
     c = torch.zeros(k.size(0), h, w, dtype=torch.float32)
     for i, (x, y) in enumerate(k):
+        if smooth:
+            for d, s in zip(range(smooth_size, 0, -1), smooth_values):
+                c[i, max(y - d, 0) : min(y + d, h), max(x - d, 0) : min(x + d, w)] = s
         c[i, y, x] = 1.0
     return c
 

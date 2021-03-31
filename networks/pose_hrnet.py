@@ -244,6 +244,8 @@ class PoseHighResolutionNet(nn.Module):
         self.init_weights()
         self.num_branches = num_branches
 
+        self.finetune_step = 3
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -376,20 +378,19 @@ class PoseHighResolutionNet(nn.Module):
                     if name in ["bias"]:
                         nn.init.constant_(m.bias, 0)
 
-    def freeze_head(self):
-        for p in self.parameters():
-            p.requires_grad_(True)
-        self.final_layer.requires_grad_(False)
-
-    def freeze_tail(self):
+    def freeze_step1(self):
         for p in self.parameters():
             p.requires_grad_(False)
         self.final_layer.requires_grad_(True)
+        self.finetune_step = 1
 
-    def freeze_all(self):
-        for p in self.parameters():
-            p.requires_grad_(False)
-
-    def unfreeze_all(self):
+    def freeze_step2(self):
         for p in self.parameters():
             p.requires_grad_(True)
+        self.final_layer.requires_grad_(False)
+        self.finetune_step = 2
+
+    def freeze_step3(self):
+        for p in self.parameters():
+            p.requires_grad_(True)
+        self.finetune_step = 3

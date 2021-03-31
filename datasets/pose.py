@@ -30,34 +30,42 @@ class KeypointDataset(Dataset):
         if augmentation:
             # 중간에 기구로 잘리는 경우를 가장
             T_ = []
-            T_.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=0))
-            T_.append(A.Cutout(max_h_size=1920, max_w_size=40, fill_value=0))
-            T_.append(A.Cutout(max_h_size=40, max_w_size=1080, fill_value=0))
+            T_.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=0, p=1))
+            T_.append(A.Cutout(max_h_size=1920, max_w_size=40, fill_value=0, p=1))
+            T_.append(A.Cutout(max_h_size=40, max_w_size=1080, fill_value=0, p=1))
             T.append(A.OneOf(T_))
 
             # geomatric augmentations
-            T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
+            # T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
+            T.append(A.ShiftScaleRotate())
             T.append(HorizontalFlipEx())
             T.append(VerticalFlipEx())
             T.append(A.RandomRotate90())
 
             T_ = []
-            T_.append(A.RandomBrightnessContrast())
-            T_.append(A.RandomGamma())
-            T_.append(A.RandomBrightness())
-            T_.append(A.RandomContrast())
+            T_.append(A.RandomBrightnessContrast(p=1))
+            T_.append(A.RandomGamma(p=1))
+            T_.append(A.RandomBrightness(p=1))
+            T_.append(A.RandomContrast(p=1))
             T.append(A.OneOf(T_))
 
-            T.append(A.Blur())
+            T_ = []
+            T_.append(A.MotionBlur(p=1))
+            T_.append(A.GaussNoise(p=1))
+            T.append(A.OneOf(T_))
         if self.C.dataset.normalize:
-            T.append(A.Normalize())
+            if self.C.dataset.mean is not None and self.C.dataset.std is not None:
+                T.append(A.Normalize(self.C.dataset.mean, self.C.dataset.std))
+            else:
+                T.append(A.Normalize())
+        else:
+            T.append(A.Normalize((0, 0, 0), (1, 1, 1)))
         T.append(ToTensorV2())
 
         self.transform = A.Compose(
             transforms=T,
             bbox_params=A.BboxParams(format="pascal_voc", label_fields=["labels"]),
             keypoint_params=A.KeypointParams(format="xy", remove_invisible=False),
-            # TODO 영역을 벗어난 keypoint는 그 영역의 한도 값으로 설정해줄 것?
         )
 
     def __len__(self):
@@ -78,8 +86,8 @@ class KeypointDataset(Dataset):
                 a = self.transform(image=image, labels=labels, bboxes=box, keypoints=keypoint)
 
                 image = a["image"]
-                if not self.C.dataset.normalize:
-                    image = image.type(torch.float) / 255.0
+                # if not self.C.dataset.normalize:
+                #     image = image.type(torch.float) / 255.0
                 bbox = list(map(int, a["bboxes"][0]))
                 keypoint = torch.tensor(a["keypoints"], dtype=torch.float32)
                 image, keypoint, heatmap, ratio = self._resize_image(image, bbox, keypoint)
@@ -115,7 +123,14 @@ class KeypointDataset(Dataset):
         # keypoint를 heatmap으로 변환
         # TODO: 완전히 정답이 아니면 틀린 것과 같은 점수. 좀 부드럽게 만들 수는 없을지?
         # heatmap regression loss중에 soft~~~ 한 이름이 있던거같은데
-        heatmap = utils.keypoints2heatmaps(keypoint, CD.input_height // 4, CD.input_width // 4)
+        heatmap = utils.keypoints2heatmaps(
+            keypoint,
+            CD.input_height // 4,
+            CD.input_width // 4,
+            smooth=self.C.dataset.smooth_heatmap.do,
+            smooth_size=self.C.dataset.smooth_heatmap.size,
+            smooth_values=self.C.dataset.smooth_heatmap.values,
+        )
 
         return image, keypoint, heatmap, ratio
 

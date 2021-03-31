@@ -29,10 +29,10 @@ from datasets import get_pose_datasets
 from losses import JointMSELoss, KeypointLoss, KeypointRMSE, KeypointBCELoss
 
 
-@dataclass
 class TrainOutput:
-    loss = utils.AverageMeter()
-    rmse = utils.AverageMeter()
+    def __init__(self):
+        self.loss = utils.AverageMeter()
+        self.rmse = utils.AverageMeter()
 
     def freeze(self):
         self.loss = self.loss()
@@ -153,7 +153,7 @@ class PoseTrainer:
 
                 O.loss.update(loss.item(), len(files))
                 O.rmse.update(rmse.item(), len(files))
-                t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
+                t.set_postfix_str(f"loss: {O.loss():.6f}, rmse: {O.rmse():.6f}", refresh=False)
                 t.update(len(imgs))
 
         return O.freeze()
@@ -172,7 +172,7 @@ class PoseTrainer:
 
                 O.loss.update(loss.item(), len(files))
                 O.rmse.update(rmse.item(), len(files))
-                t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
+                t.set_postfix_str(f"loss: {O.loss():.6f}, rmse: {O.rmse():.6f}", refresh=False)
                 t.update(len(imgs))
 
         return O.freeze()
@@ -185,7 +185,13 @@ class PoseTrainer:
             f"rmse {to.rmse:.6f};{vo.rmse:.6f}",
         )
         self.C.log.flush()
-        self.scheduler.step(vo.loss)
+
+        if isinstance(self.scheduler, utils.CosineAnnealingWarmUpRestarts):
+            self.scheduler.step()
+        elif isinstance(self.scheduler, lr_scheduler.CosineAnnealingWarmRestarts):
+            self.scheduler.step()
+        elif isinstance(self.scheduler, lr_scheduler.ReduceLROnPlateau):
+            self.scheduler.step(vo.loss)
 
         if self.best_loss > vo.loss or self.best_rmse > vo.rmse:
             if self.best_loss > vo.loss:
@@ -200,6 +206,20 @@ class PoseTrainer:
 
     def fit(self):
         for self.epoch in range(self.epoch, self.C.train.max_epochs + 1):
+            if self.C.train.finetune.do:
+                if self.epoch <= self.C.train.finetune.step1_epochs:
+                    if self.pose_model.finetune_step != 1:
+                        self.C.log.info("Finetune step 1")
+                    self.pose_model.freeze_step1()
+                elif self.epoch <= self.C.train.finetune.step2_epochs:
+                    if self.pose_model.finetune_step != 2:
+                        self.C.log.info("Finetune step 2")
+                    self.pose_model.freeze_step2()
+                else:
+                    if self.pose_model.finetune_step != 3:
+                        self.C.log.info("Finetune step 3")
+                    self.pose_model.freeze_step3()
+
             to = self.train_loop()
             vo = self.valid_loop()
             self.callback(to, vo)
@@ -227,6 +247,7 @@ def main():
         C.log = log
         C.result_dir = Path(C.result_dir)
         C.dataset.train_dir = Path(C.dataset.train_dir)
+        utils.seed_everything(C.seed, deterministic=False)
 
     for fold, checkpoint in zip(C.train.folds, C.train.checkpoints):
         trainer = PoseTrainer(C, fold, checkpoint)
