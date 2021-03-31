@@ -82,5 +82,38 @@ class KeypointRMSE(nn.Module):
 
 class KeypointBCELoss(nn.BCELoss):
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
-        input.sigmoid_()
-        return super().forward(input, target)
+        return super().forward(input.sigmoid(), target)
+
+
+class SigmoidMAE(nn.L1Loss):
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        return super().forward(input.sigmoid(), target)
+
+
+class AWing(nn.Module):
+    # https://github.com/SeungyounShin/Adaptive-Wing-Loss-for-Robust-Face-Alignment-via-Heatmap-Regression/blob/1f4d6528ebf55fb65f2f82104c3f86d761010b3e/losses/loss.py#L5
+
+    def __init__(self, alpha=2.1, omega=14, epsilon=1, theta=0.5):
+        super().__init__()
+        self.alpha = float(alpha)
+        self.omega = float(omega)
+        self.epsilon = float(epsilon)
+        self.theta = float(theta)
+
+    def forward(self, y_pred, y):
+        lossMat = torch.zeros_like(y_pred)
+        A = (
+            self.omega
+            * (1 / (1 + (self.theta / self.epsilon) ** (self.alpha - y)))
+            * (self.alpha - y)
+            * ((self.theta / self.epsilon) ** (self.alpha - y - 1))
+            / self.epsilon
+        )
+        C = self.theta * A - self.omega * torch.log(1 + (self.theta / self.epsilon) ** (self.alpha - y))
+        case1_ind = torch.abs(y - y_pred) < self.theta
+        case2_ind = torch.abs(y - y_pred) >= self.theta
+        lossMat[case1_ind] = self.omega * torch.log(
+            1 + torch.abs((y[case1_ind] - y_pred[case1_ind]) / self.epsilon) ** (self.alpha - y[case1_ind])
+        )
+        lossMat[case2_ind] = A[case2_ind] * torch.abs(y[case2_ind] - y_pred[case2_ind]) - C[case2_ind]
+        return lossMat.mean()

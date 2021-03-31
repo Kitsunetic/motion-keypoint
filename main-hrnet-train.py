@@ -7,7 +7,6 @@ from pathlib import Path
 from pprint import pformat
 
 import cv2
-from easydict import EasyDict
 import imageio
 import numpy as np
 import pandas as pd
@@ -15,6 +14,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import yaml
+from easydict import EasyDict
 from PIL import Image
 from sklearn.model_selection import KFold
 from torch import nn, optim
@@ -26,7 +26,7 @@ import networks
 import options
 import utils
 from datasets import get_pose_datasets
-from losses import JointMSELoss, KeypointLoss, KeypointRMSE, KeypointBCELoss
+from losses import AWing, JointMSELoss, KeypointBCELoss, KeypointLoss, KeypointRMSE, SigmoidMAE
 
 
 class TrainOutput:
@@ -75,7 +75,11 @@ class PoseTrainer:
         elif self.C.train.loss_type == "mae":
             self.criterion = nn.L1Loss().cuda()
         elif self.C.train.loss_type == "awing":
-            self.criterion = utils.AWing().cuda()
+            self.criterion = AWing().cuda()
+        elif self.C.train.loss_type == "sigmae":
+            self.criterion = SigmoidMAE().cuda()
+        else:
+            raise NotImplementedError()
         self.criterion_rmse = KeypointRMSE().cuda()
 
         # Optimizer
