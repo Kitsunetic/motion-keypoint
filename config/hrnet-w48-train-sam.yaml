@@ -1,5 +1,5 @@
 pose_model: HRNet-W48
-uid: HRNet_W48-BCE
+uid: HRNet_W48-BCE-SAM
 result_dir: results/hrnet-train2
 data_dir: data/ori
 debug: false
@@ -7,7 +7,7 @@ seed: 20210309
 
 train:
   max_epochs: 200
-  SAM: false
+  SAM: true
   folds: 
     - 1
     - 2
@@ -15,28 +15,28 @@ train:
     - 4
     - 5
   checkpoints: 
-    - results/hrnet-train2/HRNet_W48-BCE_1.pth
     - null
-    - null
-    - null
-    - null
+    - results/hrnet-train2/HRNet_W48-BCE-SAM_2.pth
+    - results/hrnet-train2/HRNet_W48-BCE-SAM_3.pth
+    - results/hrnet-train2/HRNet_W48-BCE-SAM_4.pth
+    - results/hrnet-train2/HRNet_W48-BCE-SAM_5.pth
   loss_type: bce # ce, bce, mse, mae, awing
   
   finetune:
     do: true
-    step1_epochs: 1
-    step2_epochs: 5
+    step1_epochs: 3
+    step2_epochs: 6
   
-  lr: 0.00001
+  lr: 0.000001
   scheduler:
     type: CosineAnnealingWarmUpRestarts
     params:
       first_cycle_steps: 10
       cycle_mult: 1.0
-      max_lr: 0.005
-      min_lr: 0.0001
-      warmup_steps: 2
-      gamma: 0.8
+      max_lr: 0.0005
+      min_lr: 0.000001
+      warmup_steps: 4
+      gamma: 0.5
     # type: CosineAnnealingWarmRestarts
     # params:
     #   T_0: 10

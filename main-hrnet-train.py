@@ -93,7 +93,7 @@ class PoseTrainer:
         self.dl_train, self.dl_valid = get_pose_datasets(self.C, self.fold)
 
         # Load Checkpoint
-        if checkpoint is not None:
+        if checkpoint is not None and Path(checkpoint).exists():
             self.load(checkpoint)
 
         # Scheduler
@@ -153,7 +153,7 @@ class PoseTrainer:
 
                 O.loss.update(loss.item(), len(files))
                 O.rmse.update(rmse.item(), len(files))
-                t.set_postfix_str(f"loss: {O.loss():.6f}, rmse: {O.rmse():.6f}", refresh=False)
+                t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
                 t.update(len(imgs))
 
         return O.freeze()
@@ -172,7 +172,7 @@ class PoseTrainer:
 
                 O.loss.update(loss.item(), len(files))
                 O.rmse.update(rmse.item(), len(files))
-                t.set_postfix_str(f"loss: {O.loss():.6f}, rmse: {O.rmse():.6f}", refresh=False)
+                t.set_postfix_str(f"loss: {loss.item():.6f}, rmse: {rmse.item():.6f}", refresh=False)
                 t.update(len(imgs))
 
         return O.freeze()
@@ -210,15 +210,15 @@ class PoseTrainer:
                 if self.epoch <= self.C.train.finetune.step1_epochs:
                     if self.pose_model.finetune_step != 1:
                         self.C.log.info("Finetune step 1")
-                    self.pose_model.freeze_step1()
+                        self.pose_model.freeze_step1()
                 elif self.epoch <= self.C.train.finetune.step2_epochs:
                     if self.pose_model.finetune_step != 2:
                         self.C.log.info("Finetune step 2")
-                    self.pose_model.freeze_step2()
+                        self.pose_model.freeze_step2()
                 else:
                     if self.pose_model.finetune_step != 3:
                         self.C.log.info("Finetune step 3")
-                    self.pose_model.freeze_step3()
+                        self.pose_model.freeze_step3()
 
             to = self.train_loop()
             vo = self.valid_loop()
