@@ -267,10 +267,14 @@ def main():
 
         if C.dataset.num_cpus < 0:
             C.dataset.num_cpus = multiprocessing.cpu_count()
+        C.uid = f"{C.pose_model}-{C.train.loss_type}-{C.dataset.input_width}x{C.dataset.input_height}"
+        C.uid += "-plus_augment" if C.train.plus_augment.do else ""
+        C.uid += "-sam" if C.train.SAM else ""
+        C.uid += f"-{C.train.scheduler.type}"
+        C.uid += f"-{C.comment}" if C.comment is not None else ""
 
         log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}.log", "a")
         log.file.write("\r\n\r\n")
-        log.info("========================================================")
         log.info("\r\n" + pformat(C))
         log.flush()
 
@@ -280,6 +284,7 @@ def main():
         utils.seed_everything(C.seed, deterministic=False)
 
     for fold, checkpoint in zip(C.train.folds, C.train.checkpoints):
+        print("Fold", fold, ", checkpoint", checkpoint)
         trainer = PoseTrainer(C, fold, checkpoint)
         trainer.fit()
 

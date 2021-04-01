@@ -6,7 +6,7 @@ debug: false
 seed: 20210309
 
 train:
-  max_epochs: 50
+  max_epochs: 100
   SAM: true
   folds: 
     - 1

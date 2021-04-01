@@ -1,5 +1,5 @@
 pose_model: HRNet-W48
-uid: HRNet_W48-CE-576x768-plus_augment-square-reduce_lr
+comment: null
 result_dir: results/hrnet-train2
 data_dir: data/ori
 debug: false
@@ -32,8 +32,8 @@ train:
     downsample:
       do: true
       p: 0.2
-      width: 512
-      height: 512
+      width: 256
+      height: 256
     rotate:
       do: true
       p: 0.4
@@ -76,8 +76,8 @@ dataset:
     do: true
     size: 3
     values: [0.1, 0.2, 0.5]
-  input_width: 576
-  input_height: 768
+  input_width: 512
+  input_height: 512
   
   batch_size: 10
   num_cpus: 6
