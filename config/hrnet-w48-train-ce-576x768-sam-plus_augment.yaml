@@ -1,0 +1,83 @@
+pose_model: HRNet-W48
+uid: HRNet_W48-CE-576x768-sam-plus_augment
+result_dir: results/hrnet-train2
+data_dir: data/ori
+debug: false
+seed: 20210309
+
+train:
+  max_epochs: 50
+  SAM: true
+  folds: 
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+  checkpoints: 
+    - null
+    - null
+    - null
+    - null
+    - null
+  loss_type: ce # ce, bce, mse, mae, awing, sigmae, kldiv
+  
+  finetune:
+    do: true
+    step1_epochs: 3
+    step2_epochs: 6
+    
+  plus_augment:
+    do: true
+    downsample:
+      do: true
+      p: 0.2
+      width: 288
+      height: 384
+    rotate:
+      do: true
+      p: 0.4
+      left: true
+      right: true
+  
+  lr: 0.000001
+  scheduler:
+    type: CosineAnnealingWarmUpRestarts
+    params:
+      first_cycle_steps: 10
+      cycle_mult: 1.0
+      max_lr: 0.0001
+      min_lr: 0.000001
+      warmup_steps: 9
+      gamma: 0.5
+    # type: CosineAnnealingWarmRestarts
+    # params:
+    #   T_0: 10
+    #   T_mult: 1
+    #   eta_min: 0.00001
+    #   verbose: false
+    # type: ReduceLROnPlateau
+    # params:
+    #   factor: 0.5
+    #   patience: 3
+    #   verbose: true
+  
+dataset:
+  train_dir: data/ori/train_imgs
+  target_file: data/ori/train_df.csv
+  
+  normalize: true
+  mean: [0.411, 0.420, 0.416]
+  std: [0.307, 0.303, 0.292]
+  smooth_heatmap: 
+    do: true
+    size: 3
+    values: [0.1, 0.2, 0.5]
+  input_width: 576
+  input_height: 768
+  
+  batch_size: 10
+  num_cpus: -1
+  padding: 20
+  
+  group_kfold: false

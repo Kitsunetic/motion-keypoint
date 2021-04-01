@@ -92,7 +92,7 @@ class KeypointDataset(Dataset):
                 keypoint = torch.tensor(a["keypoints"], dtype=torch.float32)
                 image, keypoint, heatmap, ratio = self._resize_image(image, bbox, keypoint)
 
-                return file, image, keypoint, heatmap, ratio
+                return file, image, heatmap, ratio
             except IndexError:
                 pass
 
@@ -191,9 +191,8 @@ def get_pose_datasets(C, fold):
     total_keypoints = np.array(total_keypoints_)
 
     # KFold
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=C.seed)
-
     if C.dataset.group_kfold:
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=C.seed)
         # 파일 이름 앞 17자리를 group으로 이미지를 분류 (파일이 너무 잘 섞여도 안됨)
         groups = []
         last_group = 0
@@ -208,7 +207,8 @@ def get_pose_datasets(C, fold):
                 groups.append(last_group)
         indices = list(skf.split(total_imgs, groups))
     else:
-        indices = list(skf.split(total_imgs))
+        kf = KFold(n_splits=5, shuffle=True, random_state=C.seed)
+        indices = list(kf.split(total_imgs))
     train_idx, valid_idx = indices[fold - 1]
 
     # 데이터셋 생성

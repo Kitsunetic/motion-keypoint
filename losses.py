@@ -90,6 +90,11 @@ class SigmoidMAE(nn.L1Loss):
         return super().forward(input.sigmoid(), target)
 
 
+class SigmoidKLDivLoss(nn.KLDivLoss):
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        return super().forward(input.sigmoid(), target)
+
+
 class AWing(nn.Module):
     # https://github.com/SeungyounShin/Adaptive-Wing-Loss-for-Robust-Face-Alignment-via-Heatmap-Regression/blob/1f4d6528ebf55fb65f2f82104c3f86d761010b3e/losses/loss.py#L5
 

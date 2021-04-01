@@ -1,4 +1,5 @@
-import argparse
+import argparse, random
+import multiprocessing
 import json
 import math
 import sys
@@ -26,7 +27,7 @@ import networks
 import options
 import utils
 from datasets import get_pose_datasets
-from losses import AWing, JointMSELoss, KeypointBCELoss, KeypointLoss, KeypointRMSE, SigmoidMAE
+from losses import AWing, JointMSELoss, KeypointBCELoss, KeypointLoss, KeypointRMSE, SigmoidMAE, SigmoidKLDivLoss
 
 
 class TrainOutput:
@@ -78,6 +79,8 @@ class PoseTrainer:
             self.criterion = AWing().cuda()
         elif self.C.train.loss_type == "sigmae":
             self.criterion = SigmoidMAE().cuda()
+        elif self.C.train.loss_type == "kldiv":
+            self.criterion = SigmoidKLDivLoss().cuda()
         else:
             raise NotImplementedError()
         self.criterion_rmse = KeypointRMSE().cuda()
@@ -140,8 +143,27 @@ class PoseTrainer:
 
         O = TrainOutput()
         with tqdm(total=len(self.dl_train.dataset), desc=f"Train {self.epoch:03d}", **self._tqdm_) as t:
-            for files, imgs, keypoints, target_heatmaps, ratios in self.dl_train:
+            for files, imgs, target_heatmaps, ratios in self.dl_train:
                 imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
+
+                # plus augment
+                if self.C.train.plus_augment.do:
+                    with torch.no_grad():
+                        c = self.C.train.plus_augment
+                        if c.downsample.do and random.random() <= c.downsample.p:
+                            h, w = imgs_.shape[2:]
+                            ratios[0], ratios[1] = c.downsample.width / w * ratios[0], c.downsample.height / h * ratios[1]
+                            imgs_ = F.interpolate(imgs_, (c.downsample.height, c.downsample.width))
+                            target_heatmaps_ = F.interpolate(
+                                target_heatmaps_, (c.downsample.height // 4, c.downsample.width // 4)
+                            )
+
+                        if c.rotate.do and random.random() <= c.rotate.p:
+                            k = 3 if random.random() < 0.5 else 1
+                            ratios[0], ratios[1] = ratios[1], ratios[0]
+                            imgs_ = torch.rot90(imgs_, k, dims=(2, 3))
+                            target_heatmaps_ = torch.rot90(target_heatmaps_, k, dims=(2, 3))
+
                 pred_heatmaps_ = self.pose_model(imgs_)
                 loss = self.criterion(pred_heatmaps_, target_heatmaps_)
                 rmse = self.criterion_rmse(pred_heatmaps_, target_heatmaps_, ratios.cuda(non_blocking=True))
@@ -168,7 +190,7 @@ class PoseTrainer:
 
         O = TrainOutput()
         with tqdm(total=len(self.dl_valid.dataset), desc=f"Valid {self.epoch:03d}", **self._tqdm_) as t:
-            for files, imgs, keypoints, target_heatmaps, ratios in self.dl_valid:
+            for files, imgs, target_heatmaps, ratios in self.dl_valid:
                 imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
                 pred_heatmaps_ = self.pose_model(imgs_)
                 loss = self.criterion(pred_heatmaps_, target_heatmaps_)
@@ -241,6 +263,9 @@ def main():
     with open(args.config, "r") as f:
         C = EasyDict(yaml.load(f, yaml.FullLoader))
         Path(C.result_dir).mkdir(parents=True, exist_ok=True)
+
+        if C.dataset.num_cpus < 0:
+            C.dataset.num_cpus = multiprocessing.cpu_count()
 
         log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}.log", "a")
         log.file.write("\r\n\r\n")

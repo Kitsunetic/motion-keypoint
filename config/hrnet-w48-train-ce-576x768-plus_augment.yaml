@@ -1,5 +1,5 @@
 pose_model: HRNet-W48
-uid: HRNet_W48-BCE
+uid: HRNet_W48-CE-576x768-plus_augment
 result_dir: results/hrnet-train2
 data_dir: data/ori
 debug: false
@@ -24,8 +24,21 @@ train:
   
   finetune:
     do: true
-    step1_epochs: 1
-    step2_epochs: 5
+    step1_epochs: 3
+    step2_epochs: 6
+    
+  plus_augment:
+    do: true
+    downsample:
+      do: true
+      p: 0.2
+      width: 288
+      height: 384
+    rotate:
+      do: true
+      p: 0.4
+      left: true
+      right: true
   
   lr: 0.000001
   scheduler:
@@ -64,7 +77,7 @@ dataset:
   input_height: 768
   
   batch_size: 10
-  num_cpus: 6
+  num_cpus: -1
   padding: 20
   
   group_kfold: false
