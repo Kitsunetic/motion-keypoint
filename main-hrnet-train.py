@@ -206,7 +206,7 @@ class PoseTrainer:
     @torch.no_grad()
     def callback(self, to: TrainOutput, vo: TrainOutput):
         self.C.log.info(
-            f"Epoch: {self.epoch:03d},",
+            f"Epoch: {self.epoch:03d}/{self.C.train.max_epochs},",
             f"loss: {to.loss:.6f};{vo.loss:.6f},",
             f"rmse {to.rmse:.6f};{vo.rmse:.6f}",
         )
