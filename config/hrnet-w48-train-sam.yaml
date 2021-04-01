@@ -1,5 +1,5 @@
 pose_model: HRNet-W48
-uid: HRNet_W48-SIGMAE-SAM
+uid: HRNet_W48-CE-SAM
 result_dir: results/hrnet-train2
 data_dir: data/ori
 debug: false
@@ -20,7 +20,7 @@ train:
     - null
     - null
     - null
-  loss_type: sigmae # ce, bce, mse, mae, awing, sigmae
+  loss_type: ce # ce, bce, mse, mae, awing, sigmae, kldiv
   
   finetune:
     do: true
@@ -35,7 +35,7 @@ train:
       cycle_mult: 1.0
       max_lr: 0.0001
       min_lr: 0.000001
-      warmup_steps: 4
+      warmup_steps: 9
       gamma: 0.5
     # type: CosineAnnealingWarmRestarts
     # params:
@@ -64,5 +64,7 @@ dataset:
   input_height: 768
   
   batch_size: 10
-  num_cpus: 10
+  num_cpus: 6
   padding: 20
+  
+  group_kfold: false

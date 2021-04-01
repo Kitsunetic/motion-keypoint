@@ -190,22 +190,25 @@ def get_pose_datasets(C, fold):
     total_imgs = np.array(total_imgs_)
     total_keypoints = np.array(total_keypoints_)
 
-    # 파일 이름 앞 17자리를 group으로 이미지를 분류 (파일이 너무 잘 섞여도 안됨)
-    groups = []
-    last_group = 0
-    last_stem = total_imgs[0].name[:17]
-    for f in total_imgs:
-        stem = f.name[:17]
-        if stem == last_stem:
-            groups.append(last_group)
-        else:
-            last_group += 1
-            last_stem = stem
-            groups.append(last_group)
-
     # KFold
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=C.seed)
-    indices = list(skf.split(total_imgs, groups))
+
+    if C.dataset.group_kfold:
+        # 파일 이름 앞 17자리를 group으로 이미지를 분류 (파일이 너무 잘 섞여도 안됨)
+        groups = []
+        last_group = 0
+        last_stem = total_imgs[0].name[:17]
+        for f in total_imgs:
+            stem = f.name[:17]
+            if stem == last_stem:
+                groups.append(last_group)
+            else:
+                last_group += 1
+                last_stem = stem
+                groups.append(last_group)
+        indices = list(skf.split(total_imgs, groups))
+    else:
+        indices = list(skf.split(total_imgs))
     train_idx, valid_idx = indices[fold - 1]
 
     # 데이터셋 생성

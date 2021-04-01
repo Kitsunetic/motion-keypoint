@@ -15,28 +15,28 @@ train:
     - 4
     - 5
   checkpoints: 
-    - results/hrnet-train2/HRNet_W48-BCE_1.pth
     - null
     - null
     - null
     - null
-  loss_type: bce # ce, bce, mse, mae, awing
+    - null
+  loss_type: ce # ce, bce, mse, mae, awing, sigmae, kldiv
   
   finetune:
     do: true
     step1_epochs: 1
     step2_epochs: 5
   
-  lr: 0.00001
+  lr: 0.000001
   scheduler:
     type: CosineAnnealingWarmUpRestarts
     params:
       first_cycle_steps: 10
       cycle_mult: 1.0
-      max_lr: 0.005
-      min_lr: 0.0001
-      warmup_steps: 2
-      gamma: 0.8
+      max_lr: 0.0001
+      min_lr: 0.000001
+      warmup_steps: 9
+      gamma: 0.5
     # type: CosineAnnealingWarmRestarts
     # params:
     #   T_0: 10
@@ -64,5 +64,7 @@ dataset:
   input_height: 768
   
   batch_size: 10
-  num_cpus: 10
+  num_cpus: 6
   padding: 20
+  
+  group_kfold: false
