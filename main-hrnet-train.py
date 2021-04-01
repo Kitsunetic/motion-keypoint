@@ -143,7 +143,7 @@ class PoseTrainer:
 
         O = TrainOutput()
         with tqdm(total=len(self.dl_train.dataset), desc=f"Train {self.epoch:03d}", **self._tqdm_) as t:
-            for files, imgs, target_heatmaps, ratios in self.dl_train:
+            for files, imgs, target_heatmaps, ratios, offsets in self.dl_train:
                 imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
 
                 # plus augment
@@ -152,7 +152,8 @@ class PoseTrainer:
                         c = self.C.train.plus_augment
                         if c.downsample.do and random.random() <= c.downsample.p:
                             h, w = imgs_.shape[2:]
-                            ratios[0], ratios[1] = c.downsample.width / w * ratios[0], c.downsample.height / h * ratios[1]
+                            ratios[:, 0] = c.downsample.width / w * ratios[:, 0]
+                            ratios[:, 1] = c.downsample.height / h * ratios[:, 1]
                             imgs_ = F.interpolate(imgs_, (c.downsample.height, c.downsample.width))
                             target_heatmaps_ = F.interpolate(
                                 target_heatmaps_, (c.downsample.height // 4, c.downsample.width // 4)
@@ -160,7 +161,7 @@ class PoseTrainer:
 
                         if c.rotate.do and random.random() <= c.rotate.p:
                             k = 3 if random.random() < 0.5 else 1
-                            ratios[0], ratios[1] = ratios[1], ratios[0]
+                            ratios[:, 0], ratios[:, 1] = ratios[:, 1], ratios[:, 0]
                             imgs_ = torch.rot90(imgs_, k, dims=(2, 3))
                             target_heatmaps_ = torch.rot90(target_heatmaps_, k, dims=(2, 3))
 
@@ -190,7 +191,7 @@ class PoseTrainer:
 
         O = TrainOutput()
         with tqdm(total=len(self.dl_valid.dataset), desc=f"Valid {self.epoch:03d}", **self._tqdm_) as t:
-            for files, imgs, target_heatmaps, ratios in self.dl_valid:
+            for files, imgs, target_heatmaps, ratios, offsets in self.dl_valid:
                 imgs_, target_heatmaps_ = imgs.cuda(non_blocking=True), target_heatmaps.cuda(non_blocking=True)
                 pred_heatmaps_ = self.pose_model(imgs_)
                 loss = self.criterion(pred_heatmaps_, target_heatmaps_)
