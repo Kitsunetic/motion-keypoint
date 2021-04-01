@@ -223,8 +223,10 @@ class ScaleInvarianceKeypointDataset(Dataset):
         bbox크기만큼 이미지를 자르고, keypoint에 offset/ratio를 준다.
         """
         dw, dh = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        jw, jh = dw % 32, dh % 32
+        jw, jh = 32 - dw % 32, 32 - dh % 32
+        jw, jh = jw % 32, jh % 32
         pad = (math.floor(jw / 2), math.floor(jh / 2), math.ceil(jw / 2), math.ceil(jh / 2))
+        # print(dw, dh, jw, jh, pad)
         bbox = (bbox[0] - pad[0], bbox[1] - pad[1], bbox[2] + pad[2], bbox[3] + pad[3])
 
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
@@ -253,8 +255,8 @@ class ScaleInvarianceKeypointDataset(Dataset):
         # heatmap regression loss중에 soft~~~ 한 이름이 있던거같은데
         heatmap = utils.keypoints2heatmaps(
             keypoint,
-            CD.input_height // 4,
-            CD.input_width // 4,
+            image.size(1) // 4,
+            image.size(2) // 4,
             smooth=self.C.dataset.smooth_heatmap.do,
             smooth_size=self.C.dataset.smooth_heatmap.size,
             smooth_values=self.C.dataset.smooth_heatmap.values,
