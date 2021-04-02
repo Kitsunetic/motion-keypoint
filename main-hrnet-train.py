@@ -92,8 +92,8 @@ class PoseTrainer:
                 ).mean(0)
                 final_layer.weight[22] = self.pose_model.final_layer.weight[15].clone()
                 final_layer.bias[22] = self.pose_model.final_layer.bias[15].clone()
-                final_layer.weight[26] = self.pose_model.final_layer.weight[16].clone()
-                final_layer.bias[26] = self.pose_model.final_layer.bias[16].clone()
+                final_layer.weight[23] = self.pose_model.final_layer.weight[16].clone()
+                final_layer.bias[23] = self.pose_model.final_layer.bias[16].clone()
 
             self.pose_model.final_layer = final_layer
         self.pose_model.cuda()
@@ -302,6 +302,7 @@ def main():
         C.uid = f"{C.pose_model}-{C.train.loss_type}-{C.dataset.input_width}x{C.dataset.input_height}"
         C.uid += "-plus_augment" if C.train.plus_augment.do else ""
         C.uid += "-sam" if C.train.SAM else ""
+        C.uid += "-maw" if C.model_additional_weight else ""
         C.uid += f"-{C.train.scheduler.type}"
         C.uid += f"-{C.comment}" if C.comment is not None else ""
 
