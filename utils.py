@@ -1,5 +1,5 @@
 import math
-from torch import Tensor
+from torch import Tensor, mean
 import os
 import random
 import re
@@ -673,3 +673,28 @@ class CosineAnnealingWarmUpRestarts(_LRScheduler):
         self.last_epoch = math.floor(epoch)
         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
             param_group["lr"] = lr
+
+
+class Tensor2Image:
+    def __init__(
+        self,
+        mean: torch.Tensor = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float),
+        std: torch.Tensor = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float),
+    ):
+        if not isinstance(mean, torch.Tensor):
+            mean = torch.tensor(mean, dtype=torch.float)
+        if not isinstance(std, torch.Tensor):
+            std = torch.tensor(std, dtype=torch.float)
+
+        self.mean = mean
+        self.std = std
+
+    def __call__(self, x: torch.Tensor):
+        assert x.dim() in (3, 4)
+        if x.dim() == 3:
+            assert x.size(0) in (1, 3, 4)
+            x = 255 * (x.permute(1, 2, 0) * self.std.view(1, 1, 3) + self.mean.view(1, 1, 3))
+        if x.dim() == 4:
+            assert x.size(1) in (1, 3, 4)
+            x = 255 * (x.permute(0, 2, 3, 1) * self.std.view(1, 1, 1, 3) + self.mean.view(1, 1, 1, 3))
+        return x.type(torch.uint8).numpy()

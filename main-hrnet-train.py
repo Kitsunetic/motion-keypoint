@@ -1,7 +1,8 @@
-import argparse, random
-import multiprocessing
+import argparse
 import json
 import math
+import multiprocessing
+import random
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,7 @@ import networks
 import options
 import utils
 from datasets import get_pose_datasets
-from losses import AWing, JointMSELoss, KeypointBCELoss, KeypointLoss, KeypointRMSE, SigmoidMAE, SigmoidKLDivLoss
+from losses import AWing, JointMSELoss, KeypointBCELoss, KeypointLoss, KeypointRMSE, SigmoidKLDivLoss, SigmoidMAE
 
 
 class TrainOutput:
@@ -295,28 +296,33 @@ def main():
 
     with open(args.config, "r") as f:
         C = EasyDict(yaml.load(f, yaml.FullLoader))
-        Path(C.result_dir).mkdir(parents=True, exist_ok=True)
-
-        if C.dataset.num_cpus < 0:
-            C.dataset.num_cpus = multiprocessing.cpu_count()
-        C.uid = f"{C.pose_model}-{C.train.loss_type}-{C.dataset.input_width}x{C.dataset.input_height}"
-        C.uid += "-plus_augment" if C.train.plus_augment.do else ""
-        C.uid += "-sam" if C.train.SAM else ""
-        C.uid += "-maw" if C.model_additional_weight else ""
-        C.uid += f"-{C.train.scheduler.type}"
-        C.uid += f"-{C.comment}" if C.comment is not None else ""
-
-        log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}_{''.join(map(str, C.train.folds))}.log", "a")
-        log.file.write("\r\n\r\n")
-        log.info("\r\n" + pformat(C))
-        log.flush()
-
-        C.log = log
-        C.result_dir = Path(C.result_dir)
-        C.dataset.train_dir = Path(C.dataset.train_dir)
-        utils.seed_everything(C.seed, deterministic=False)
 
     for fold, checkpoint in zip(C.train.folds, C.train.checkpoints):
+        with open(args.config, "r") as f:
+            C = EasyDict(yaml.load(f, yaml.FullLoader))
+            Path(C.result_dir).mkdir(parents=True, exist_ok=True)
+
+            if C.dataset.num_cpus < 0:
+                C.dataset.num_cpus = multiprocessing.cpu_count()
+            C.uid = f"{C.pose_model}-{C.train.loss_type}-{C.dataset.input_width}x{C.dataset.input_height}"
+            C.uid += "-plus_augment" if C.train.plus_augment.do else ""
+            C.uid += "-sam" if C.train.SAM else ""
+            C.uid += "-maw" if C.model_additional_weight else ""
+            C.uid += f"-rr{C.dataset.ratio_limit:.1f}"
+            C.uid += f"-{C.train.scheduler.type}"
+            C.uid += f"-{C.comment}" if C.comment is not None else ""
+
+            # log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}_{''.join(map(str, C.train.folds))}.log", "a")
+            log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}_{fold}.log", "a")
+            log.file.write("\r\n\r\n")
+            log.info("\r\n" + pformat(C))
+            log.flush()
+
+            C.log = log
+            C.result_dir = Path(C.result_dir)
+            C.dataset.train_dir = Path(C.dataset.train_dir)
+            utils.seed_everything(C.seed, deterministic=False)
+
         C.log.info("Fold", fold, ", checkpoint", checkpoint)
         trainer = PoseTrainer(C, fold, checkpoint)
         trainer.fit()

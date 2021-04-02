@@ -7,19 +7,19 @@ debug: false
 seed: 20210309
 
 train:
-  max_epochs: 100
+  max_epochs: 200
   SAM: false
   folds: 
     # - 1
     # - 2
     # - 3
-    - 4
+    # - 4
     - 5
   checkpoints: 
     # - null
     # - null
     # - null
-    - null
+    # - null
     - null
   loss_type: ce # ce, bce, mse, mae, awing, sigmae, kldiv
   
@@ -79,6 +79,7 @@ dataset:
     values: [0.1, 0.2, 0.5]
   input_width: 512
   input_height: 512
+  ratio_limit: 2.0
   
   batch_size: 10
   num_cpus: 6

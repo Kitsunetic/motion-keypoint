@@ -1,5 +1,6 @@
 import json
 import math
+from typing import List, Tuple
 
 import albumentations as A
 import cv2
@@ -16,6 +17,21 @@ from sklearn.model_selection import KFold, StratifiedKFold
 from torch.utils.data import DataLoader, Dataset, Subset
 
 from .common import HorizontalFlipEx, VerticalFlipEx
+
+
+def reratio_box(roi: Tuple[float, float, float, float], ratio_limit=2.0):
+    # 극단적인 비율의 이미지는 조정해줄 필요가 있음
+    w, h = roi[2] - roi[0], roi[3] - roi[1]
+    dhl, dhr, dwl, dwr = 0, 0, 0, 0
+    if w / h > ratio_limit:
+        # w/(h+x) = l, x = w/l - h
+        dh = w / ratio_limit - h
+        dhl, dhr = math.floor(dh / 2), math.ceil(dh / 2)
+    elif h / w > ratio_limit:
+        # h/(w+x) = l, x = h/l - w
+        dw = h / ratio_limit - w
+        dwl, dwr = math.floor(dw / 2), math.ceil(dw / 2)
+    return dhl, dhr, dwl, dwr
 
 
 class KeypointDataset(Dataset):
@@ -113,6 +129,12 @@ class KeypointDataset(Dataset):
         """
         bbox크기만큼 이미지를 자르고, keypoint에 offset/ratio를 준다.
         """
+        dhl, dhr, dwl, dwr = reratio_box(bbox, ratio_limit=self.C.dataset.ratio_limit)
+        bbox[0] -= dwl
+        bbox[1] -= dhl
+        bbox[2] += dwr
+        bbox[3] += dhr
+
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
         CD = self.C.dataset
 
@@ -151,17 +173,29 @@ class KeypointDataset(Dataset):
 
 
 class TestKeypointDataset(Dataset):
-    def __init__(self, files, info, normalize, size=(576, 768), rotation=0, flip=False):
+    def __init__(
+        self,
+        files,
+        info,
+        normalize,
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+        size=(576, 768),
+        rotation=0,
+        flip=False,
+        ratio_limit=2.0,
+    ):
         super().__init__()
         self.files = files
         self.info = info
         self.size = size
         self.rotation = rotation % 4
         self.flip = flip
+        self.ratio_limit = ratio_limit
 
         T = []
         if normalize:
-            T.append(A.Normalize())
+            T.append(A.Normalize(mean, std))
         T.append(ToTensorV2())
 
         self.transform = A.Compose(transforms=T)
@@ -172,6 +206,18 @@ class TestKeypointDataset(Dataset):
     def __getitem__(self, idx):
         file = str(self.files[idx])
         img = imageio.imread(file)
+        roi = self.info[idx]["roi"]
+
+        # 극단적인 비율의 이미지는 조정해줄 필요가 있음
+        dhl, dhr, dwl, dwr = reratio_box(roi, ratio_limit=self.ratio_limit)
+        roi[0] -= dwl
+        roi[1] -= dhl
+        roi[2] += dwr
+        roi[3] += dhr
+        roi = list(map(int, roi))
+        img = img[roi[1] : roi[3], roi[0] : roi[2]]
+        offset = roi[:2]
+
         img = self.transform(image=img)["image"]
 
         if self.rotation > 0:
@@ -183,9 +229,6 @@ class TestKeypointDataset(Dataset):
 
         if self.flip:
             img = torch.flip(img, (2,))
-
-        roi = self.info[idx]["roi"]
-        offset = roi[:2]
 
         return file, img, offset, ratio, ori_size
 
@@ -227,14 +270,13 @@ def get_pose_datasets(C, fold):
     train_idx, valid_idx = indices[fold - 1]
 
     # 데이터셋 생성
-    D = ScaleInvarianceKeypointDataset if C.dataset.scale_invariance else KeypointDataset
-    ds_train = D(
+    ds_train = KeypointDataset(
         C,
         total_imgs[train_idx],
         total_keypoints[train_idx],
         augmentation=True,
     )
-    ds_valid = D(
+    ds_valid = KeypointDataset(
         C,
         total_imgs[valid_idx],
         total_keypoints[valid_idx],
