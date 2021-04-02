@@ -31,15 +31,21 @@ class KeypointDataset(Dataset):
         if augmentation:
             # 중간에 기구로 잘리는 경우를 가장
             T_ = []
-            T_.append(A.Cutout(max_h_size=200, max_w_size=200, fill_value=0, p=1))
-            T_.append(A.Cutout(max_h_size=200, max_w_size=200, fill_value=255, p=1))
-            T_.append(A.Cutout(max_h_size=200, max_w_size=200, fill_value=128, p=1))
-            T_.append(A.Cutout(max_h_size=1920, max_w_size=100, fill_value=0, p=1))
-            T_.append(A.Cutout(max_h_size=1920, max_w_size=100, fill_value=255, p=1))
-            T_.append(A.Cutout(max_h_size=1920, max_w_size=100, fill_value=128, p=1))
-            T_.append(A.Cutout(max_h_size=100, max_w_size=1080, fill_value=0, p=1))
-            T_.append(A.Cutout(max_h_size=100, max_w_size=1080, fill_value=255, p=1))
-            T_.append(A.Cutout(max_h_size=100, max_w_size=1080, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=0, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=255, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=192, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=64, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=0, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=255, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=192, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=64, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=0, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=255, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=192, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=64, p=1))
             T.append(A.OneOf(T_))
 
             # geomatric augmentations
