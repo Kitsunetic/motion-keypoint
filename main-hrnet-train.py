@@ -63,6 +63,38 @@ class PoseTrainer:
         with torch.no_grad():
             final_layer.weight[:17] = self.pose_model.final_layer.weight
             final_layer.bias[:17] = self.pose_model.final_layer.bias
+
+            if self.C.model_additional_weight:
+                # neck(17)은 left/right sholder(5, 6)과 nose(0)의 평균
+                # left/right palm(18, 19)는 left/right wrist(9, 10)을 복사
+                # spine2(20)은 left/right sholder(5, 6)과 left/right hip(11, 12)의 중앙
+                # spine1(21)은 left/right hip(11, 12)을 각각 1/3 + left/right sholder(5, 6)을 각각 1/6
+                # instep(22, 23)은 angle(15, 16)를 복사
+                final_layer.weight[17] = self.pose_model.final_layer.weight[[0, 5, 6]].clone().mean(0)
+                final_layer.bias[17] = self.pose_model.final_layer.bias[[0, 5, 6]].clone().mean(0)
+                final_layer.weight[18] = self.pose_model.final_layer.weight[9].clone()
+                final_layer.bias[18] = self.pose_model.final_layer.bias[9].clone()
+                final_layer.weight[19] = self.pose_model.final_layer.weight[10].clone()
+                final_layer.bias[19] = self.pose_model.final_layer.bias[10].clone()
+                final_layer.weight[20] = self.pose_model.final_layer.weight[[5, 6, 11, 12]].clone().mean(0)
+                final_layer.bias[20] = self.pose_model.final_layer.bias[[5, 6, 11, 12]].clone().mean(0)
+                final_layer.weight[21] = torch.cat(
+                    (
+                        self.pose_model.final_layer.weight[[11, 12]].clone() * 1 / 3,
+                        self.pose_model.final_layer.weight[[5, 6]].clone() * 6 / 1,
+                    )
+                ).mean(0)
+                final_layer.bias[21] = torch.cat(
+                    (
+                        self.pose_model.final_layer.bias[[11, 12]].clone() * 1 / 3,
+                        self.pose_model.final_layer.bias[[5, 6]].clone() * 6 / 1,
+                    )
+                ).mean(0)
+                final_layer.weight[22] = self.pose_model.final_layer.weight[15].clone()
+                final_layer.bias[22] = self.pose_model.final_layer.bias[15].clone()
+                final_layer.weight[26] = self.pose_model.final_layer.weight[16].clone()
+                final_layer.bias[26] = self.pose_model.final_layer.bias[16].clone()
+
             self.pose_model.final_layer = final_layer
         self.pose_model.cuda()
 
@@ -273,7 +305,7 @@ def main():
         C.uid += f"-{C.train.scheduler.type}"
         C.uid += f"-{C.comment}" if C.comment is not None else ""
 
-        log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}.log", "a")
+        log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}_{''.join(map(str, C.train.folds))}.log", "a")
         log.file.write("\r\n\r\n")
         log.info("\r\n" + pformat(C))
         log.flush()
@@ -284,7 +316,7 @@ def main():
         utils.seed_everything(C.seed, deterministic=False)
 
     for fold, checkpoint in zip(C.train.folds, C.train.checkpoints):
-        print("Fold", fold, ", checkpoint", checkpoint)
+        C.log.info("Fold", fold, ", checkpoint", checkpoint)
         trainer = PoseTrainer(C, fold, checkpoint)
         trainer.fit()
 
