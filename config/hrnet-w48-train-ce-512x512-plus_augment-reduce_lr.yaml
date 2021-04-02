@@ -9,15 +9,15 @@ train:
   max_epochs: 100
   SAM: false
   folds: 
-    - 1
-    - 2
-    - 3
+    # - 1
+    # - 2
+    # - 3
     - 4
     - 5
   checkpoints: 
-    - null
-    - null
-    - null
+    # - null
+    # - null
+    # - null
     - null
     - null
   loss_type: ce # ce, bce, mse, mae, awing, sigmae, kldiv
