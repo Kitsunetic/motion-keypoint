@@ -209,11 +209,12 @@ class TestKeypointDataset(Dataset):
         roi = self.info[idx]["roi"]
 
         # 극단적인 비율의 이미지는 조정해줄 필요가 있음
+        h, w = img.shape[:2]
         dhl, dhr, dwl, dwr = reratio_box(roi, ratio_limit=self.ratio_limit)
-        roi[0] -= dwl
-        roi[1] -= dhl
-        roi[2] += dwr
-        roi[3] += dhr
+        roi[0] = max(roi[0] - dwl, 0)
+        roi[1] = max(roi[1] - dhl, 0)
+        roi[2] = min(roi[2] + dwr, w)
+        roi[3] = min(roi[3] + dhr, h)
         roi = list(map(int, roi))
         img = img[roi[1] : roi[3], roi[0] : roi[2]]
         offset = roi[:2]
