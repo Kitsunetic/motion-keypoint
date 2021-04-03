@@ -130,10 +130,11 @@ class KeypointDataset(Dataset):
         bbox크기만큼 이미지를 자르고, keypoint에 offset/ratio를 준다.
         """
         dhl, dhr, dwl, dwr = reratio_box(bbox, ratio_limit=self.C.dataset.ratio_limit)
-        bbox[0] -= dwl
-        bbox[1] -= dhl
-        bbox[2] += dwr
-        bbox[3] += dhr
+        h, w = image.shape[:2]
+        bbox[0] = max(bbox[0] - dwl, 0)
+        bbox[1] = max(bbox[1] - dhl, 0)
+        bbox[2] = min(bbox[2] + dwr, w)
+        bbox[3] = min(bbox[3] + dhr, h)
 
         image = image[:, bbox[1] : bbox[3], bbox[0] : bbox[2]]
         CD = self.C.dataset
