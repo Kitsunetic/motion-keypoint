@@ -183,7 +183,8 @@ class TestKeypointDataset(Dataset):
         std=[0.229, 0.224, 0.225],
         size=(576, 768),
         rotation=0,
-        flip=False,
+        horizontal_flip=False,
+        vertical_flip=False,
         ratio_limit=2.0,
     ):
         super().__init__()
@@ -191,7 +192,8 @@ class TestKeypointDataset(Dataset):
         self.info = info
         self.size = size
         self.rotation = rotation % 4
-        self.flip = flip
+        self.horizontal_flip = horizontal_flip
+        self.vertical_flip = vertical_flip
         self.ratio_limit = ratio_limit
 
         T = []
@@ -211,12 +213,12 @@ class TestKeypointDataset(Dataset):
 
         # 극단적인 비율의 이미지는 조정해줄 필요가 있음
         h, w = img.shape[:2]
+        roi = list(map(int, roi))
         dhl, dhr, dwl, dwr = reratio_box(roi, ratio_limit=self.ratio_limit)
         roi[0] = max(roi[0] - dwl, 0)
         roi[1] = max(roi[1] - dhl, 0)
         roi[2] = min(roi[2] + dwr, w)
         roi[3] = min(roi[3] + dhr, h)
-        roi = list(map(int, roi))
         img = img[roi[1] : roi[3], roi[0] : roi[2]]
         offset = roi[:2]
 
@@ -229,7 +231,9 @@ class TestKeypointDataset(Dataset):
         ratio = (self.size[0] / img.shape[2], self.size[1] / img.shape[1])
         img = F.interpolate(img.unsqueeze(0), self.size[::-1], mode="bilinear", align_corners=True).squeeze(0)
 
-        if self.flip:
+        if self.vertical_flip:
+            img = torch.flip(img, (1,))
+        if self.horizontal_flip:
             img = torch.flip(img, (2,))
 
         return file, img, offset, ratio, ori_size

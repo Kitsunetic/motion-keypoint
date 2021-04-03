@@ -698,3 +698,13 @@ class Tensor2Image:
             assert x.size(1) in (1, 3, 4)
             x = 255 * (x.permute(0, 2, 3, 1) * self.std.view(1, 1, 1, 3) + self.mean.view(1, 1, 1, 3))
         return x.type(torch.uint8).numpy()
+
+
+def imshows(*ims, figsize=None):
+    figsize = figsize or (len(ims) * 6, 4)
+    plt.figure(figsize=figsize)
+    for i, im in enumerate(ims):
+        plt.subplot(1, len(ims), i + 1)
+        plt.imshow(im)
+    plt.tight_layout()
+    plt.show()
