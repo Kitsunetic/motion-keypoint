@@ -4,15 +4,13 @@ comment: null
 
 det_model: 
   name: efficientdet-d7
-  # pretrained: null
-  # pretrained: results/effdet-train/ckpt-efficientdet-d7_1.pth
-  pretrained: results/effdet-train/ckpt-efficientdet-d7_SAM_1.pth
 
 dataset:
   dir: data/ori
-  batch_size: 1
+  batch_size: 4
   num_cpus: 1
   padding: 20
+  group_kfold: false
   
   crop:
     - 192
@@ -20,14 +18,16 @@ dataset:
     - 1728
     - 1052
 
-  input_width: 1536 #768 #1536
-  input_height: 1024 #512 #1024
+  input_width: 768 # 1536
+  input_height: 512 # 1024
   
 train:
   SAM: false
   earlystop_patience: 10
   start_epoch: 1
   final_epoch: 200
+  
+  batch_augmentation: true
   
   folds:
     - 1

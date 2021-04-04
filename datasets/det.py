@@ -32,18 +32,33 @@ class DetDataset(Dataset):
         T.append(A.Resize(self.C.dataset.input_height, self.C.dataset.input_width))
         if augmentation:
             T_ = []
-            T_.append(A.Cutout(max_h_size=20, max_w_size=20))
-            T_.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=255))
-            T_.append(A.Cutout(max_h_size=self.C.dataset.input_height // 2, max_w_size=10, fill_value=255))
-            T_.append(A.Cutout(max_h_size=self.C.dataset.input_height // 2, max_w_size=10, fill_value=0))
-            T_.append(A.Cutout(max_h_size=10, max_w_size=self.C.dataset.input_width // 2, fill_value=255))
-            T_.append(A.Cutout(max_h_size=10, max_w_size=self.C.dataset.input_width // 2, fill_value=0))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=0, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=255, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=192, p=1))
+            T_.append(A.Cutout(num_holes=16, max_h_size=100, max_w_size=100, fill_value=64, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=0, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=255, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=192, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=1920, max_w_size=50, fill_value=64, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=0, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=255, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=128, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=192, p=1))
+            T_.append(A.Cutout(num_holes=5, max_h_size=30, max_w_size=1080, fill_value=64, p=1))
+            # T_.append(A.Cutout(max_h_size=20, max_w_size=20))
+            # T_.append(A.Cutout(max_h_size=20, max_w_size=20, fill_value=255))
+            # T_.append(A.Cutout(max_h_size=self.C.dataset.input_height // 2, max_w_size=10, fill_value=255))
+            # T_.append(A.Cutout(max_h_size=self.C.dataset.input_height // 2, max_w_size=10, fill_value=0))
+            # T_.append(A.Cutout(max_h_size=10, max_w_size=self.C.dataset.input_width // 2, fill_value=255))
+            # T_.append(A.Cutout(max_h_size=10, max_w_size=self.C.dataset.input_width // 2, fill_value=0))
             T.append(A.OneOf(T_))
 
             T.append(A.ShiftScaleRotate(border_mode=cv2.BORDER_CONSTANT))
             T.append(HorizontalFlipEx())
-            # T.append(VerticalFlipEx())
-            # T.append(A.RandomRotate90())
+            T.append(VerticalFlipEx())
+            # T.append(A.RandomRotate90()) # batch-augmentation으로 대체
 
             T_ = []
             T_.append(A.RandomBrightnessContrast())
@@ -131,22 +146,25 @@ def get_det_dataset(C, fold):
     total_imgs = np.array(total_imgs_)
     total_keypoints = np.array(total_keypoints_)
 
-    # 파일 이름 앞 17자리를 group으로 이미지를 분류 (파일이 너무 잘 섞여도 안됨)
-    groups = []
-    last_group = 0
-    last_stem = total_imgs[0].name[:17]
-    for f in total_imgs:
-        stem = f.name[:17]
-        if stem == last_stem:
-            groups.append(last_group)
-        else:
-            last_group += 1
-            last_stem = stem
-            groups.append(last_group)
-
     # KFold
-    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=C.seed)
-    indices = list(skf.split(total_imgs, groups))
+    if C.dataset.group_kfold:
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=C.seed)
+        # 파일 이름 앞 17자리를 group으로 이미지를 분류 (파일이 너무 잘 섞여도 안됨)
+        groups = []
+        last_group = 0
+        last_stem = total_imgs[0].name[:17]
+        for f in total_imgs:
+            stem = f.name[:17]
+            if stem == last_stem:
+                groups.append(last_group)
+            else:
+                last_group += 1
+                last_stem = stem
+                groups.append(last_group)
+        indices = list(skf.split(total_imgs, groups))
+    else:
+        kf = KFold(n_splits=5, shuffle=True, random_state=C.seed)
+        indices = list(kf.split(total_imgs))
     train_idx, valid_idx = indices[fold - 1]
 
     # 데이터셋 생성

@@ -1,21 +1,65 @@
-det_model: efficientdet-d4
-uid: efficientdet-d4
-result_dir: results/effdet-train
-data_dir: data/ori
-
-lr: 0.0001
-batch_size: 5
-num_cpus: 5
-start_epoch: 1
-final_epoch: 200
-SAM: false
-padding: 20
-fold: 1
-
-debug: false
-
 seed: 20210309
-inference: false
+result_dir: results/effdet-train
+comment: null
 
-input_width: 1024
-input_height: 512
+det_model: 
+  name: efficientdet-d4
+
+dataset:
+  dir: data/ori
+  batch_size: 2
+  num_cpus: 1
+  padding: 20
+  group_kfold: false
+  
+  crop:
+    - 192
+    - 28
+    - 1728
+    - 1052
+
+  input_width: 768 # 1536
+  input_height: 512 # 1024
+  
+train:
+  SAM: false
+  earlystop_patience: 10
+  start_epoch: 1
+  final_epoch: 200
+  
+  batch_augmentation: true
+  
+  folds:
+    - 1
+    # - 2
+    # - 3
+    # - 4
+    # - 5
+  checkpoints:
+    - null
+    # - null
+    # - null
+    # - null
+    # - null
+
+  # lr: 0.000001
+  lr: 0.0001
+  scheduler:
+    # type: CosineAnnealingWarmUpRestarts
+    # params:
+    #   T_0: 10
+    #   T_mult: 1
+    #   eta_max: 0.001
+    #   T_up: 5
+    #   gamma: 0.5
+    # type: CosineAnnealingWarmRestarts
+    # params:
+    #   T_0: 10
+    #   T_mult: 1
+    #   eta_min: 0.00001
+    #   verbose: false
+    type: ReduceLROnPlateau
+    params:
+      factor: 0.5
+      patience: 3
+      verbose: true

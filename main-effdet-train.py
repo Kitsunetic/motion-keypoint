@@ -1,13 +1,14 @@
 import argparse
+from pprint import pformat
 import json
 import math
 import os
+from random import random, randint
 import shutil
 import sys
 from multiprocessing import cpu_count
 from pathlib import Path
 
-import cv2
 import imageio
 import numpy as np
 import pandas as pd
@@ -19,7 +20,6 @@ from easydict import EasyDict
 from PIL import Image
 from torch import nn, optim
 from torch.optim import lr_scheduler
-from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 import networks
@@ -60,9 +60,6 @@ class DetTrainer:
         self.dl_train, self.dl_valid = get_det_dataset(C, self.fold)
 
         # Load Checkpoint
-        if self.C.det_model.pretrained is not None:
-            self.load(self.C.det_model.pretrained)
-
         if checkpoint is not None:
             self.load(checkpoint)
 
@@ -109,6 +106,29 @@ class DetTrainer:
         with tqdm(total=len(self.dl_train.dataset), **self._tqdm_, desc=f"Train {self.epoch:03d}") as t:
             for files, imgs, annots in self.dl_train:
                 imgs_, annots_ = imgs.cuda(non_blocking=True), annots.cuda(non_blocking=True)
+
+                # batch augmentation
+                if self.C.train.batch_augmentation:
+                    h, w = imgs.shape[2:]
+
+                    # downsample
+                    if random() <= 0.5:
+                        imgs_ = F.interpolate(imgs_, (h // 2, w // 2))
+                        annots_[:4] *= 0.5
+
+                    # rotation
+                    if random() <= 0.5:
+                        k = randint(1, 3)
+                        a, b, c, d = annots_[..., 0], annots_[..., 1], annots_[..., 2], annots_[..., 3]
+                        e = annots_[..., 4]
+                        if k == 1:
+                            annots_ = torch.stack([b, w - c, d, w - a, e], dim=2)
+                        elif k == 2:
+                            annots_ = torch.stack([w - c, h - d, w - a, h - b, e], dim=2)
+                        elif k == 3:
+                            annots_ = torch.stack([h - d, a, h - b, c, e], dim=2)
+                        imgs_ = torch.rot90(imgs_, k=k, dims=(2, 3))
+
                 loss = self.det_model(imgs_, annots_)
 
                 self.optimizer.zero_grad()
@@ -158,7 +178,7 @@ class DetTrainer:
         if self.best_loss > vo.loss:
             self.best_loss = vo.loss
             self.earlystop_cnt = 0
-            self.save(Path(self.C.result_dir) / f"ckpt-{self.C.uid}_{self.fold}.pth")
+            self.save(self.C.result_dir / f"{self.C.uid}_{self.fold}.pth")
         else:
             self.earlystop_cnt += 1
 
@@ -172,101 +192,7 @@ class DetTrainer:
                 self.C.log.info(f"Stop training at epoch", self.epoch)
                 break
 
-        self.load(Path(self.C.result_dir) / f"ckpt-{self.C.uid}_{self.fold}.pth")
-
-    def scale_inference_single_image(self, img, dw, dh, flip=False):
-        _, h, w = img.shape
-        img = img.unsqueeze(0)
-
-        ratio_x = dw / w
-        ratio_y = dh / h
-        img = F.interpolate(img, (dh, dw))
-        if flip:
-            img = torch.flip(img, dims=[3])
-        result = self.det_model(img)[0]
-
-        class_mask = result["class_ids"] == 0
-        rois = result["rois"][class_mask]
-        scores = result["scores"][class_mask]
-
-        if len(rois) > 0:
-            j = np.argmax(scores)
-            roi = rois[j]
-            score = scores[j]
-
-            if flip:
-                roi[0::2] = (dw - roi[0::2]) / ratio_x
-                roi[1::2] /= ratio_y
-                temp = roi[0].copy()
-                roi[0] = roi[2]
-                roi[2] = temp
-            else:
-                roi[0::2] /= ratio_x
-                roi[1::2] /= ratio_y
-
-            return roi, score
-        else:
-            return None, None
-
-    def multiscale_inference(self, imgs):
-        """사이즈/LR에 대해 bbox 좌표를 구하고, voting이 아니라 좌표값에 대한 가중평균을 구함"""
-        rectified_rois = []
-
-        for img in imgs:
-            rois = []
-            scores = []
-            for dw, dh in self.C.inference.multiscale_test.sizes:
-                roi, score = self.scale_inference_single_image(img, dw, dh, flip=False)
-                if roi is not None:
-                    rois.append(roi)
-                    scores.append(score)
-
-                if self.C.inference.flip_test.horizontal:
-                    roi, score = self.scale_inference_single_image(img, dw, dh, flip=True)
-                    if roi is not None:
-                        rois.append(roi)
-                        scores.append(score)
-
-            # print(len(rois) )
-
-            rois = np.stack(rois)
-            scores = np.stack(scores)
-            new_roi = np.average(rois, axis=0, weights=scores)
-            rectified_rois.append(new_roi)
-
-        return np.stack(rectified_rois)
-
-    @torch.no_grad()
-    def test_loop(self, file_out_dir):
-        self.det_model.eval()
-        file_out_dir = Path(file_out_dir)
-        file_out_dir.mkdir(parents=True, exist_ok=True)
-
-        inf = self.C.inference
-
-        with tqdm(total=len(self.dl_test.dataset), ncols=100, file=sys.stdout) as t:
-            for files, imgs in self.dl_test:
-                imgs_ = imgs.cuda(non_blocking=True)
-
-                # multi-scale test
-                pred_bboxes = self.multiscale_inference(imgs_)
-
-                for file, pred_bbox in zip(files, pred_bboxes):
-                    file = Path(file)
-                    t.set_postfix_str(file.name)
-
-                    ud_bbox = pred_bbox.copy()
-                    ud_bbox[0::2] = ud_bbox[0::2] / self.C.input_width * (1920 - self.C.crop[0] * 2)
-                    ud_bbox[1::2] = ud_bbox[1::2] / self.C.input_height * (1080 - self.C.crop[1] * 2)
-                    ud_bbox[0::2] += self.C.crop[0]
-                    ud_bbox[1::2] += self.C.crop[1]
-                    int_bbox = ud_bbox.astype(np.int64)
-
-                    img_ori = imageio.imread(file)
-                    clip = img_ori[int_bbox[1] : int_bbox[3], int_bbox[0] : int_bbox[2]]
-                    imageio.imwrite(file_out_dir / file.name, clip)
-
-                    t.update()
+        self.load(self.C.result_dir / f"{self.C.uid}_{self.fold}.pth")
 
 
 def main():
@@ -282,14 +208,25 @@ def main():
             C = EasyDict(yaml.load(f, yaml.FullLoader))
             Path(C.result_dir).mkdir(parents=True, exist_ok=True)
 
-        if C.dataset.num_cpus < 0:
-            C.dataset.num_cpus = cpu_count()
-        C.uid = f"{C.det_model.name}"
-        C.uid += f"-sam" if C.train.SAM else ""
-        C.uid += f"-{C.dataset.input_width}x{C.dataset.input_height}"
-        C.uid += f"-pad{C.dataset.padding}"
-        C.uid += f"-{C.comment}" if C.comment is not None else ""
-        C.uid += f"_{C.train.fold}"
+            if C.dataset.num_cpus < 0:
+                C.dataset.num_cpus = cpu_count()
+            C.uid = f"{C.det_model.name}"
+            C.uid += "-sam" if C.train.SAM else ""
+            C.uid += f"-{C.dataset.input_width}x{C.dataset.input_height}"
+            C.uid += f"-pad{C.dataset.padding}"
+            C.uid += "-ba" if C.train.batch_augmentation else ""
+            C.uid += f"-{C.comment}" if C.comment is not None else ""
+            C.uid += f"_{fold}"
+
+            log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}_{fold}.log", "a")
+            log.file.write("\r\n\r\n")
+            log.info("\r\n" + pformat(C))
+            log.flush()
+
+            C.log = log
+            C.result_dir = Path(C.result_dir)
+            C.dataset.dir = Path(C.dataset.dir)
+            utils.seed_everything(C.seed)
 
         trainer = DetTrainer(C, fold, checkpoint)
         trainer.fit()
