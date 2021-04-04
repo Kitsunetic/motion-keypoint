@@ -7,7 +7,7 @@ det_model:
 
 dataset:
   dir: data/ori
-  batch_size: 4
+  batch_size: 2
   num_cpus: 1
   padding: 20
   group_kfold: false

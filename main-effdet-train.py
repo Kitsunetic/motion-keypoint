@@ -114,7 +114,7 @@ class DetTrainer:
                     # downsample
                     if random() <= 0.5:
                         imgs_ = F.interpolate(imgs_, (h // 2, w // 2))
-                        annots_[:4] *= 0.5
+                        annots_[..., :4] *= 0.5
 
                     # rotation
                     if random() <= 0.5:
