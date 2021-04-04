@@ -1,8 +1,10 @@
 import argparse
 import json
 import math
+import os
 import shutil
 import sys
+from multiprocessing import cpu_count
 from pathlib import Path
 
 import cv2
@@ -12,6 +14,8 @@ import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+import yaml
+from easydict import EasyDict
 from PIL import Image
 from torch import nn, optim
 from torch.optim import lr_scheduler
@@ -19,42 +23,60 @@ from torch.utils.data.dataloader import DataLoader
 from tqdm import tqdm
 
 import networks
-import options
 import utils
 from datasets import get_det_dataset
 
 
+class DetTrainOutput:
+    def __init__(self):
+        self.loss = utils.AverageMeter()
+
+    def freeze(self):
+        self.loss = self.loss()
+        return self
+
+
 class DetTrainer:
-    def __init__(self, C, fold):
+    _tqdm_ = dict(ncols=100, leave=False, file=sys.stdout)
+
+    def __init__(self, C, fold=1, checkpoint=None):
         self.C = C
         self.fold = fold
 
-        self.det_model = networks.EfficientDetFinetune(
-            self.C.det_model.name, pretrained=True, finetune=self.C.det_model.finetune.do
-        )
+        self.det_model = networks.EfficientDet(self.C.det_model.name, pretrained=True)
         self.det_model.cuda()
 
         # Optimizer
-        if self.C.SAM:
-            self.optimizer = utils.SAM(self.det_model.parameters(), optim.AdamW, lr=self.C.lr)
+        if self.C.train.SAM:
+            self.optimizer = utils.SAM(self.det_model.parameters(), optim.AdamW, lr=self.C.train.lr)
         else:
-            self.optimizer = optim.AdamW(self.det_model.parameters(), lr=self.C.lr)
+            self.optimizer = optim.AdamW(self.det_model.parameters(), lr=self.C.train.lr)
 
-        self.epoch = self.C.start_epoch
+        self.epoch = self.C.train.start_epoch
         self.best_loss = math.inf
         self.earlystop_cnt = 0
 
         # Dataset
-        self.dl_train, self.dl_valid, self.dl_test = get_det_dataset(C, self.fold)
+        self.dl_train, self.dl_valid = get_det_dataset(C, self.fold)
 
         # Load Checkpoint
         if self.C.det_model.pretrained is not None:
             self.load(self.C.det_model.pretrained)
 
+        if checkpoint is not None:
+            self.load(checkpoint)
+
         # Scheduler
-        self.scheduler = options.get_scheduler(self.C, self.optimizer, -1)
-        if self.epoch != 1:
-            self.scheduler.step(epoch=self.epoch - 2)
+        if self.C.train.scheduler.type == "CosineAnnealingWarmUpRestarts":
+            self.scheduler = utils.CosineAnnealingWarmUpRestarts(
+                self.optimizer, **self.C.train.scheduler.params, last_epoch=self.epoch - 2
+            )
+        elif self.C.train.scheduler.type == "CosineAnnealingWarmRestarts":
+            self.scheduler = lr_scheduler.CosineAnnealingWarmRestarts(
+                self.optimizer, **self.C.train.scheduler.params, last_epoch=self.epoch - 2
+            )
+        elif self.C.train.scheduler.type == "ReduceLROnPlateau":
+            self.scheduler = lr_scheduler.ReduceLROnPlateau(self.optimizer, **self.C.train.scheduler.params)
 
     def save(self, path):
         torch.save(
@@ -83,14 +105,8 @@ class DetTrainer:
     def train_loop(self):
         self.det_model.train()
 
-        meanloss = utils.AverageMeter()
-        with tqdm(
-            total=len(self.dl_train.dataset),
-            ncols=100,
-            leave=False,
-            file=sys.stdout,
-            desc=f"Train {self.epoch:03d}",
-        ) as t:
+        O = DetTrainOutput()
+        with tqdm(total=len(self.dl_train.dataset), **self._tqdm_, desc=f"Train {self.epoch:03d}") as t:
             for files, imgs, annots in self.dl_train:
                 imgs_, annots_ = imgs.cuda(non_blocking=True), annots.cuda(non_blocking=True)
                 loss = self.det_model(imgs_, annots_)
@@ -104,73 +120,59 @@ class DetTrainer:
                 else:
                     self.optimizer.step()
 
-                meanloss.update(loss.item())
+                O.loss.update(loss.item(), len(files))
                 t.set_postfix_str(f"loss: {loss.item():.6f}", refresh=False)
-                t.update(len(imgs))
+                t.update(len(files))
 
-        return meanloss()
+        return O.freeze()
 
     @torch.no_grad()
     def valid_loop(self):
         self.det_model.eval()
 
-        meanloss = utils.AverageMeter()
-        with tqdm(
-            total=len(self.dl_valid.dataset),
-            ncols=100,
-            leave=False,
-            file=sys.stdout,
-            desc=f"Valid {self.epoch:03d}",
-        ) as t:
+        O = DetTrainOutput()
+        with tqdm(total=len(self.dl_valid.dataset), **self._tqdm_, desc=f"Valid {self.epoch:03d}") as t:
             for files, imgs, annots in self.dl_valid:
                 imgs_, annots_ = imgs.cuda(non_blocking=True), annots.cuda(non_blocking=True)
                 loss = self.det_model(imgs_, annots_)
 
-                meanloss.update(loss.item())
+                O.loss.update(loss.item(), len(files))
                 t.set_postfix_str(f"loss: {loss.item():.6f}", refresh=False)
-                t.update(len(imgs))
+                t.update(len(files))
 
-        return meanloss()
+        return O.freeze()
 
     @torch.no_grad()
-    def callback(self, tloss, vloss):
+    def callback(self, to: DetTrainOutput, vo: DetTrainOutput):
         self.C.log.info(
             f"Epoch: {self.epoch:03d},",
-            f"loss: {tloss:.6f};{vloss:.6f},",
+            f"loss: {to.loss:.6f};{vo.loss:.6f},",
         )
         self.C.log.flush()
 
         if isinstance(self.scheduler, lr_scheduler.CosineAnnealingWarmRestarts):
             self.scheduler.step()
         elif isinstance(self.scheduler, lr_scheduler.ReduceLROnPlateau):
-            self.scheduler.step(vloss)
+            self.scheduler.step(vo.loss)
 
-        if self.best_loss > vloss:
-            self.best_loss = vloss
+        if self.best_loss > vo.loss:
+            self.best_loss = vo.loss
             self.earlystop_cnt = 0
-            self.save(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
+            self.save(Path(self.C.result_dir) / f"ckpt-{self.C.uid}_{self.fold}.pth")
         else:
             self.earlystop_cnt += 1
 
     def fit(self):
-        for self.epoch in range(self.epoch, self.C.final_epoch + 1):
-            if self.C.finetune.do:
-                if self.epoch <= self.C.finetune.step1_epochs:
-                    self.det_model.unfreeze_tail()
-                elif self.epoch <= self.C.finetune.step2_epochs:
-                    self.det_model.unfreeze_head()
-                else:
-                    self.det_model.unfreeze()
+        for self.epoch in range(self.epoch, self.C.train.final_epoch + 1):
+            to = self.train_loop()
+            vo = self.valid_loop()
+            self.callback(to, vo)
 
-            tloss = self.train_loop()
-            vloss = self.valid_loop()
-            self.callback(tloss, vloss)
-
-            if self.earlystop_cnt > self.C.earlystop_patience:
+            if self.earlystop_cnt > self.C.train.earlystop_patience:
                 self.C.log.info(f"Stop training at epoch", self.epoch)
                 break
 
-        self.load(self.C.result_dir / f"ckpt-{self.C.uid}_{self.fold}.pth")
+        self.load(Path(self.C.result_dir) / f"ckpt-{self.C.uid}_{self.fold}.pth")
 
     def scale_inference_single_image(self, img, dw, dh, flip=False):
         _, h, w = img.shape
@@ -272,16 +274,25 @@ def main():
     args.add_argument("config_file", type=str)
     args = args.parse_args(sys.argv[1:])
 
-    config = options.load_config(args.config_file)
-    trainer = DetTrainer(config, 1)
-    if not config.inference.inference_only:
-        trainer.fit()
+    with open(args.config_file, "r") as f:
+        C = EasyDict(yaml.load(f, yaml.FullLoader))
 
-    # validation exmaple 이미지 저장
-    result_dir = config.result_dir / "example" / f"valid_{config.uid}"
-    if result_dir.exists():
-        shutil.rmtree(result_dir)
-    trainer.test_loop(result_dir)
+    for fold, checkpoint in zip(C.train.folds, C.train.checkpoints):
+        with open(args.config_file, "r") as f:
+            C = EasyDict(yaml.load(f, yaml.FullLoader))
+            Path(C.result_dir).mkdir(parents=True, exist_ok=True)
+
+        if C.dataset.num_cpus < 0:
+            C.dataset.num_cpus = cpu_count()
+        C.uid = f"{C.det_model.name}"
+        C.uid += f"-sam" if C.train.SAM else ""
+        C.uid += f"-{C.dataset.input_width}x{C.dataset.input_height}"
+        C.uid += f"-pad{C.dataset.padding}"
+        C.uid += f"-{C.comment}" if C.comment is not None else ""
+        C.uid += f"_{C.train.fold}"
+
+        trainer = DetTrainer(C, fold, checkpoint)
+        trainer.fit()
 
 
 if __name__ == "__main__":

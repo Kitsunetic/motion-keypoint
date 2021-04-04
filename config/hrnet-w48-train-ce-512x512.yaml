@@ -8,19 +8,19 @@ seed: 20210309
 
 train:
   max_epochs: 200
-  SAM: false
+  SAM: true
   folds: 
-    # - 1
+    - 1
     # - 2
     # - 3
     # - 4
-    - 5
+    # - 5
   checkpoints: 
-    # - null
-    # - null
-    # - null
-    # - null
     - null
+    # - results/hrnet-train2/HRNet-W48-ce-512x512-plus_augment-maw-rr2.0-ReduceLROnPlateau_2.pth
+    # - null
+    # - null
+    # - null
   loss_type: ce # ce, bce, mse, mae, awing, sigmae, kldiv
   
   finetune:
@@ -81,7 +81,7 @@ dataset:
   input_height: 512
   ratio_limit: 2.0
   
-  batch_size: 10
+  batch_size: 15
   num_cpus: 6
   padding: 20
   

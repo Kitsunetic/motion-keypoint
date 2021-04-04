@@ -25,7 +25,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import networks
-import options
 import utils
 from datasets import get_pose_datasets
 from losses import AWing, JointMSELoss, KeypointBCELoss, KeypointLoss, KeypointRMSE, SigmoidKLDivLoss, SigmoidMAE
