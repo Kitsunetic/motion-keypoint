@@ -1,6 +1,6 @@
 """
-This code is combination of all codes of a repository https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch.
-A partial modification for single import and automatic checkpoint loading is attached.
+This code is effcientdet pytorch implementation and single file combination of all codes in a repository https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch.
+Partial modifications for single import, loss calculation, automatic checkpoint loading are attached.
 
 * Referenced to https://github.com/zylo117/Yet-Another-EfficientDet-Pytorch
 * Edited by https://github.com/Kitsunetic

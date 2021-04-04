@@ -1,5 +1,4 @@
 import math
-from torch import Tensor, mean
 import os
 import random
 import re
@@ -16,9 +15,8 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from albumentations.augmentations import functional as AF
 from albumentations.core.transforms_interface import DualTransform
-from PIL import Image
+from torch import Tensor
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import Dataset
 
