@@ -105,7 +105,7 @@ class DetDataset(Dataset):
 class TestDetDataset(Dataset):
     def __init__(self, config, files):
         super().__init__()
-        self.config = config
+        self.C = config
         self.files = files
         dataset = self.C.dataset
 

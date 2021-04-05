@@ -216,7 +216,7 @@ def main():
             C.uid += f"-pad{C.dataset.padding}"
             C.uid += "-ba" if C.train.batch_augmentation else ""
             C.uid += f"-{C.comment}" if C.comment is not None else ""
-            C.uid += f"_{fold}"
+            # C.uid += f"_{fold}"
 
             log = utils.CustomLogger(Path(C.result_dir) / f"{C.uid}_{fold}.log", "a")
             log.file.write("\r\n\r\n")
