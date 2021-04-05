@@ -209,7 +209,8 @@ class TestKeypointDataset(Dataset):
     def __getitem__(self, idx):
         file = str(self.files[idx])
         img = imageio.imread(file)
-        roi = self.info[idx]["roi"]
+        # roi = self.info[idx]["roi"]
+        roi = self.info[idx]
 
         # 극단적인 비율의 이미지는 조정해줄 필요가 있음
         h, w = img.shape[:2]
