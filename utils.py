@@ -32,22 +32,6 @@ def seed_everything(seed, deterministic=False):
         torch.backends.cudnn.benchmark = not deterministic
 
 
-def generate_experiment_directory(base_dir, comments=None):
-    comments = list(map(lambda x: x.replace(" ", "_"), filter(None, comments)))
-
-    base_dir = Path(base_dir)
-    n = datetime.now()
-    dirname = f"{n.month:02d}{n.day:02d}_{n.hour:02d}{n.minute:02d}{n.second:02d}"
-    if isinstance(comments, str):
-        dirname += f"-{comments}"
-    elif isinstance(comments, Iterable):
-        dirname += "-" + "-".join(comments)
-    dirpath = base_dir / dirname
-    (dirpath / "example").mkdir(parents=True, exist_ok=True)
-
-    return dirpath, dirpath.name
-
-
 class AverageMeter(object):
     """
     AverageMeter, referenced to https://dacon.io/competitions/official/235626/codeshare/1684
@@ -382,111 +366,6 @@ def keypoints2heatmaps(
     return c
 
 
-def nums2keypoints(nums):
-    x = nums % 144
-    y = nums // 144
-    return torch.stack([x, y], 1)
-
-
-def get_single_person_rois(out):
-    max_area = 0
-    max_idx = 0
-    for i, (roi, class_id, score) in enumerate(zip(out["rois"], out["class_ids"], out["scores"])):
-        if class_id != 0:
-            continue
-
-        area = (roi[2] - roi[0]) * (roi[3] - roi[1])
-        if max_area < area:
-            max_area = area
-            max_idx = i
-
-    return out["rois"][max_idx].astype(np.int64)
-
-
-def resize_box(
-    img: np.ndarray,
-    opad: int,
-    box: List[int],
-    keypoint: np.ndarray = None,
-    dst_h=768,
-    dst_w=576,
-    ori_pad_h=38,
-    ori_pad_w=374,
-):
-    """
-    - img: 입력 이미지
-    - keypoint: 입력 키포인트
-    - opad: 키포인트 바깥에 기본적으로 둘 padding
-    - box: detection 모델에서 구해진 roi
-    - dst_h, dst_w: 최종 이미지의 사이즈
-    - ori_pad_h, ori_pad_w: 기본적으로 더해지는 offset
-    """
-    x = img
-
-    box = [box[0] - opad, box[1] - opad, box[2] + opad, box[3] + opad]
-    h, w = box[3] - box[1], box[2] - box[0]
-    if h > w:
-        ratio = dst_h / h
-        jw = dst_w / ratio
-        center_w = (box[0] + box[2]) / 2
-        dbox = [int(center_w - jw / 2), box[1], int(center_w + jw / 2), box[3]]
-
-        # 초과분은 zero padding
-        zpad = [0, 0]
-        if dbox[0] < 0:
-            zpad[0] = -dbox[0]
-            dbox[0] = 0
-        if dbox[2] > x.shape[1]:
-            zpad[1] = dbox[2] - x.shape[1]
-            dbox[2] = x.shape[1]
-
-        x = x[dbox[1] : dbox[3], dbox[0] : dbox[2]]
-        pad1 = np.zeros((x.shape[0], zpad[0], 3), dtype=np.uint8)
-        pad2 = np.zeros((x.shape[0], zpad[1], 3), dtype=np.uint8)
-        x = np.concatenate([pad1, x, pad2], 1)
-    else:
-        ratio = dst_w / w
-        jh = dst_h / ratio
-        center_h = (box[1] + box[3]) / 2
-        dbox = [box[0], int(center_h - jh / 2), box[2], int(center_h + jh / 2)]
-
-        # 초과분은 zero padding
-        zpad = [0, 0]
-        if dbox[1] < 0:
-            zpad[0] = -dbox[1]
-            dbox[1] = 0
-        if dbox[3] > x.shape[0]:
-            zpad[1] = dbox[3] - x.shape[0]
-            dbox[3] = x.shape[0]
-
-        x = x[dbox[1] : dbox[3], dbox[0] : dbox[2]]
-        pad1 = np.zeros((zpad[0], x.shape[1], 3), dtype=np.uint8)
-        pad2 = np.zeros((zpad[1], x.shape[1], 3), dtype=np.uint8)
-        x = np.concatenate([pad1, x, pad2], 0)
-
-    x = cv2.resize(x, (dst_w, dst_h), interpolation=cv2.INTER_LANCZOS4)
-    offset = [int(dbox[0] + ori_pad_w), int(dbox[1] + ori_pad_h)]
-
-    if keypoint is not None:
-        k = keypoint.copy()
-        k[:, 0] -= offset[0]
-        k[:, 1] -= offset[1]
-        k *= ratio
-
-        return x, k, offset, ratio
-    else:
-        return x, offset, ratio
-
-
-def imshow_horizon(*ims, figsize=(12, 6)):
-    plt.figure(figsize=figsize)
-    for i, im in enumerate(ims, 1):
-        plt.subplot(1, len(ims), i)
-        plt.imshow(im)
-    plt.tight_layout()
-    plt.show()
-
-
 def keypoint2box(keypoint, padding=0):
     return np.array(
         [
@@ -526,69 +405,6 @@ def normalize(
         std = std.view(3, 1, 1).to(x.device)
 
     return (x - mean) / std
-
-
-# class CosineAnnealingWarmUpRestarts(_LRScheduler):
-#     """https://gaussian37.github.io/dl-pytorch-lr_scheduler/"""
-
-#     def __init__(self, optimizer, T_0, T_mult=1, eta_max=0.1, T_up=0, gamma=1.0, last_epoch=-1):
-#         if T_0 <= 0 or not isinstance(T_0, int):
-#             raise ValueError("Expected positive integer T_0, but got {}".format(T_0))
-#         if T_mult < 1 or not isinstance(T_mult, int):
-#             raise ValueError("Expected integer T_mult >= 1, but got {}".format(T_mult))
-#         if T_up < 0 or not isinstance(T_up, int):
-#             raise ValueError("Expected positive integer T_up, but got {}".format(T_up))
-
-#         self.T_0 = T_0
-#         self.T_mult = T_mult
-#         self.base_eta_max = eta_max
-#         self.eta_max = eta_max
-#         self.T_up = T_up
-#         self.T_i = T_0
-#         self.gamma = gamma
-#         self.cycle = 0
-#         self.T_cur = last_epoch
-
-#         super(CosineAnnealingWarmUpRestarts, self).__init__(optimizer, last_epoch)
-
-#     def get_lr(self):
-#         if self.T_cur == -1:
-#             return self.base_lrs
-#         elif self.T_cur < self.T_up:
-#             return [(self.eta_max - base_lr) * self.T_cur / self.T_up + base_lr for base_lr in self.base_lrs]
-#         else:
-#             return [
-#                 base_lr
-#                 + (self.eta_max - base_lr) * (1 + math.cos(math.pi * (self.T_cur - self.T_up) / (self.T_i - self.T_up))) / 2
-#                 for base_lr in self.base_lrs
-#             ]
-
-#     def step(self, epoch=None):
-#         if epoch is None:
-#             epoch = self.last_epoch + 1
-#             self.T_cur = self.T_cur + 1
-#             if self.T_cur >= self.T_i:
-#                 self.cycle += 1
-#                 self.T_cur = self.T_cur - self.T_i
-#                 self.T_i = (self.T_i - self.T_up) * self.T_mult + self.T_up
-#         else:
-#             if epoch >= self.T_0:
-#                 if self.T_mult == 1:
-#                     self.T_cur = epoch % self.T_0
-#                     self.cycle = epoch // self.T_0
-#                 else:
-#                     n = int(math.log((epoch / self.T_0 * (self.T_mult - 1) + 1), self.T_mult))
-#                     self.cycle = n
-#                     self.T_cur = epoch - self.T_0 * (self.T_mult ** n - 1) / (self.T_mult - 1)
-#                     self.T_i = self.T_0 * self.T_mult ** (n)
-#             else:
-#                 self.T_i = self.T_0
-#                 self.T_cur = epoch
-
-#         self.eta_max = self.base_eta_max * (self.gamma ** self.cycle)
-#         self.last_epoch = math.floor(epoch)
-#         for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
-#             param_group["lr"] = lr
 
 
 class CosineAnnealingWarmUpRestarts(_LRScheduler):
